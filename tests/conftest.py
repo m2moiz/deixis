@@ -1,0 +1,117 @@
+"""Test doubles for parakeet-mlx.
+
+from_pretrained downloads and loads ~2.4 GB of weights, which no unit test can
+afford. transcribe() imports it inside the function body, so there is no
+deixis.transcribe.from_pretrained attribute to patch -- the target is the
+source module, parakeet_mlx.from_pretrained, which the function-local import
+re-reads on every call.
+"""
+
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+
+import pytest
+
+
+@dataclass
+class FakeToken:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass
+class FakeSentence:
+    start: float
+    end: float
+    text: str
+    tokens: list[FakeToken] = field(default_factory=list)
+
+
+class FakeAlignedResult:
+    def __init__(self, sentences: list[FakeSentence]) -> None:
+        self.sentences = sentences
+        self.text = " ".join(s.text for s in sentences)
+
+
+class FakeModel:
+    """Stands in for parakeet_mlx.parakeet.BaseParakeet.
+
+    Mirrors the two things transcribe() touches: preprocessor_config.sample_rate
+    and transcribe(path, *, chunk_duration, overlap_duration, chunk_callback).
+    """
+
+    def __init__(
+        self,
+        sample_rate: int = 16_000,
+        sentences: list[FakeSentence] | None = None,
+        chunk_positions: list[tuple[float, float]] | None = None,
+    ) -> None:
+        self.preprocessor_config = SimpleNamespace(sample_rate=sample_rate)
+        self.sentences = sentences if sentences is not None else []
+        # (current, full) pairs in SAMPLES, exactly as parakeet passes them.
+        self.chunk_positions = chunk_positions or []
+        self.calls: list[dict] = []
+
+    def transcribe(
+        self,
+        path,
+        *,
+        chunk_duration=None,
+        overlap_duration=15.0,
+        chunk_callback=None,
+    ) -> FakeAlignedResult:
+        self.calls.append(
+            {
+                "path": path,
+                "chunk_duration": chunk_duration,
+                "overlap_duration": overlap_duration,
+            }
+        )
+        for current, full in self.chunk_positions:
+            if chunk_callback is not None:
+                chunk_callback(current, full)
+        return FakeAlignedResult(self.sentences)
+
+
+@pytest.fixture
+def fake_parakeet(monkeypatch):
+    """Install a FakeModel in place of the real weights.
+
+    Usage:
+        model = fake_parakeet(sample_rate=16_000, sentences=[...])
+    """
+
+    def install(**kwargs) -> FakeModel:
+        model = FakeModel(**kwargs)
+        monkeypatch.setattr("parakeet_mlx.from_pretrained", lambda model_id: model)
+        return model
+
+    return install
+
+
+@pytest.fixture
+def frozen_clock(monkeypatch):
+    """Pin time.monotonic so elapsed_s is exactly reproducible.
+
+    Deliberately forgiving past the end of `ticks` (it keeps returning the last
+    value) so a test does not have to count internal time.monotonic() calls.
+
+    Usage:
+        frozen_clock([100.0, 100.0])   # start and end -> elapsed == 0.0
+    """
+
+    def install(ticks: list[float]) -> None:
+        it = iter(ticks)
+        last = [ticks[-1]]
+
+        def monotonic() -> float:
+            try:
+                last[0] = next(it)
+            except StopIteration:
+                pass
+            return last[0]
+
+        monkeypatch.setattr("deixis.transcribe.time.monotonic", monotonic)
+
+    return install

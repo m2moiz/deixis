@@ -68,6 +68,25 @@ def render_bar(p: Progress, width: int = 24) -> str:
     )
 
 
+def _make_chunk_callback(
+    rate: float,
+    clock: Callable[[], float],
+    emit: Callable[[Progress], None],
+) -> Callable[[float, float], None]:
+    """Build the callback parakeet-mlx fires once per chunk.
+
+    `current` and `full` arrive in SAMPLES, not seconds -- the upstream CLI only
+    ever feeds them to a ratio, so the units never mattered there. Dividing by
+    `rate` is the whole point of this function, and a ratio-only assertion
+    cannot see whether it happened, because the units cancel.
+    """
+
+    def chunk_callback(current: float, full: float) -> None:
+        emit(Progress(current / rate, full / rate, clock()))
+
+    return chunk_callback
+
+
 def transcribe(
     audio: Path,
     out: Path,
@@ -96,16 +115,17 @@ def transcribe(
         }
         status_path.write_text(json.dumps(payload))
 
-    # chunk_callback reports SAMPLES, not seconds -- the upstream CLI only ever
-    # feeds them to a ratio, so the units never mattered there. Read the rate off
-    # the model rather than assuming 16kHz.
-    rate = model.preprocessor_config.sample_rate
-
-    def chunk_callback(current: float, full: float) -> None:
-        p = Progress(current / rate, full / rate, time.monotonic() - started)
+    def emit(p: Progress) -> None:
         write_status(p, "running")
         if on_progress:
             on_progress(p)
+
+    # Read the rate off the model rather than assuming 16kHz.
+    chunk_callback = _make_chunk_callback(
+        model.preprocessor_config.sample_rate,
+        lambda: time.monotonic() - started,
+        emit,
+    )
 
     result = model.transcribe(
         audio,
