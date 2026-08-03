@@ -97,3 +97,59 @@ def test_transcribe_on_an_empty_result_still_writes_a_file(fake_parakeet, tmp_pa
 
     assert out.exists()
     assert payload["sentences"] == []
+
+
+def test_status_file_carries_seconds_and_a_state(fake_parakeet, tmp_path):
+    """A detached run is inspected through this file; it is the only window in."""
+    fake_parakeet(
+        sample_rate=RATE,
+        sentences=_sentences(),
+        chunk_positions=[(750.0 * RATE, 4427.028 * RATE)],
+    )
+    status = tmp_path / "status.json"
+    seen: list[dict] = []
+
+    # Reading from inside on_progress pins the production fan-out order: emit
+    # writes the status file first, then calls on_progress.
+    def capture(_p):
+        seen.append(json.loads(status.read_text()))
+
+    transcribe(
+        tmp_path / "in.wav",
+        tmp_path / "out.json",
+        status_path=status,
+        on_progress=capture,
+    )
+
+    running = seen[-1]
+    assert running["state"] == "running"
+    assert running["audio_done_s"] == pytest.approx(750.0)
+    assert running["audio_total_s"] == pytest.approx(4427.028)
+    assert running["fraction"] == pytest.approx(0.1694, abs=1e-4)
+
+
+def test_status_file_ends_in_the_done_state(fake_parakeet, tmp_path):
+    fake_parakeet(
+        sample_rate=RATE,
+        sentences=_sentences(),
+        chunk_positions=[(750.0 * RATE, 4427.028 * RATE)],
+    )
+    status = tmp_path / "status.json"
+
+    transcribe(tmp_path / "in.wav", tmp_path / "out.json", status_path=status)
+
+    final = json.loads(status.read_text())
+    assert final["state"] == "done"
+    assert final["audio_done_s"] == pytest.approx(750.0)
+    assert final["fraction"] == 1.0
+
+
+def test_no_status_path_writes_nothing(fake_parakeet, tmp_path):
+    fake_parakeet(
+        sentences=_sentences(),
+        chunk_positions=[(750.0 * RATE, 4427.028 * RATE)],
+    )
+
+    transcribe(tmp_path / "in.wav", tmp_path / "out.json")
+
+    assert list(tmp_path.iterdir()) == [tmp_path / "out.json"]
