@@ -38,6 +38,11 @@ class Progress:
     audio_done_s: float
     audio_total_s: float
     elapsed_s: float
+    # Audio already transcribed by an earlier run. Without it a resumed job
+    # reports a fictional 300x, because it credits this run's clock with work a
+    # previous one paid for -- and the ETA built on that speed is wrong by the
+    # same factor, in the optimistic direction.
+    resumed_from_s: float = 0.0
 
     @property
     def fraction(self) -> float:
@@ -45,8 +50,13 @@ class Progress:
 
     @property
     def speed(self) -> float:
-        """Realtime multiple: seconds of audio per second of wall clock."""
-        return self.audio_done_s / self.elapsed_s if self.elapsed_s else 0.0
+        """Realtime multiple: seconds of audio per second of wall clock.
+
+        Measured over this run's own work, so it stays a truthful estimate of
+        what the remaining audio will cost.
+        """
+        done = self.audio_done_s - self.resumed_from_s
+        return done / self.elapsed_s if self.elapsed_s else 0.0
 
     @property
     def eta_s(self) -> float | None:
@@ -78,17 +88,19 @@ def _make_chunk_callback(
     rate: float,
     clock: Callable[[], float],
     emit: Callable[[Progress], None],
+    resumed_from_s: float = 0.0,
 ) -> Callable[[float, float], None]:
-    """Build the callback parakeet-mlx fires once per chunk.
+    """Build the per-chunk progress callback.
 
-    `current` and `full` arrive in SAMPLES, not seconds -- the upstream CLI only
-    ever feeds them to a ratio, so the units never mattered there. Dividing by
-    `rate` is the whole point of this function, and a ratio-only assertion
-    cannot see whether it happened, because the units cancel.
+    `current` and `full` arrive in SAMPLES, not seconds -- the sample counts
+    parakeet-mlx passes its own callback, which deixis/chunking.py preserves.
+    Upstream only ever feeds them to a ratio, so the units never mattered there.
+    Dividing by `rate` is the whole point of this function, and a ratio-only
+    assertion cannot see whether it happened, because the units cancel.
     """
 
     def chunk_callback(current: float, full: float) -> None:
-        emit(Progress(current / rate, full / rate, clock()))
+        emit(Progress(current / rate, full / rate, clock(), resumed_from_s))
 
     return chunk_callback
 
@@ -99,6 +111,7 @@ def transcribe(
     model_id: str = DEFAULT_MODEL,
     status_path: Path | None = None,
     on_progress: Callable[[Progress, str], None] | None = None,
+    resume: bool = True,
 ) -> dict:
     """Transcribe `media`, writing a sentence+token timestamped JSON to `out`.
 
@@ -108,8 +121,21 @@ def transcribe(
 
     Returns the parsed result. `status_path` receives a JSON heartbeat during
     both phases so a detached run stays observable.
+
+    An interrupted run leaves a checkpoint beside `out`, and the next run
+    continues from its last completed chunk. `resume=False` ignores and removes
+    any checkpoint and transcribes the whole file.
     """
     from parakeet_mlx import from_pretrained
+    from parakeet_mlx.audio import load_audio
+
+    from deixis.checkpoint import (
+        checkpoint_path_for,
+        fingerprint,
+        read_checkpoint,
+        write_checkpoint,
+    )
+    from deixis.chunking import transcribe_chunked
 
     started = time.monotonic()
     # Load first: the extraction target rate is a property of this model's
@@ -156,6 +182,30 @@ def transcribe(
         else:
             audio = media
 
+        audio_data = load_audio(audio, rate)
+
+        ckpt_path = checkpoint_path_for(out)
+        # Fingerprinted on `media`, never on `audio`: for a .mov those differ,
+        # and `audio` is a temp wav with a fresh path and mtime on every run, so
+        # a checkpoint keyed to it could never match a second time.
+        fp = fingerprint(media, len(audio_data), model_id, CHUNK_S, OVERLAP_S)
+
+        start_tokens: list = []
+        skip_before = 0
+        if resume:
+            found = read_checkpoint(ckpt_path, fp)
+            if found is not None:
+                skip_before, start_tokens = found
+                print(
+                    f"resuming from {_clock(skip_before / rate)} "
+                    f"({len(start_tokens)} tokens banked)",
+                    file=sys.stderr,
+                )
+        else:
+            ckpt_path.unlink(missing_ok=True)
+
+        resumed_from_s = skip_before / rate
+
         # Per-phase clock, as above: transcription runs at a different order of
         # magnitude from extraction, so they cannot share an elapsed.
         transcribe_started = time.monotonic()
@@ -163,13 +213,27 @@ def transcribe(
             rate,
             lambda: time.monotonic() - transcribe_started,
             lambda p: report(p, "running"),
+            resumed_from_s,
         )
 
-        result = model.transcribe(
-            audio,
-            chunk_duration=CHUNK_S,
-            overlap_duration=OVERLAP_S,
-            chunk_callback=chunk_callback,
+        def on_chunk(done_through: int, next_start: int, total: int, merged: list) -> None:
+            # Checkpointed with next_start, never done_through: chunks overlap,
+            # so a chunk's end is past the following chunk's start and resuming
+            # from it would skip a whole chunk of audio.
+            #
+            # Banked before it is reported, so an observer that sees 40% can
+            # never be ahead of what a restart could actually recover.
+            write_checkpoint(ckpt_path, fp, next_start, merged)
+            chunk_callback(done_through, total)
+
+        result = transcribe_chunked(
+            model,
+            audio_data,
+            chunk_s=CHUNK_S,
+            overlap_s=OVERLAP_S,
+            start_tokens=start_tokens,
+            skip_before=skip_before,
+            on_chunk=on_chunk,
         )
 
         payload = {
@@ -188,11 +252,19 @@ def transcribe(
                 for s in result.sentences
             ],
         }
-        out.write_text(json.dumps(payload))
+        # Atomic for the same reason as the heartbeat, and more: `out` is what
+        # every downstream tool reads, and a truncated transcript does not
+        # announce itself -- it merely looks short.
+        atomic_write_text(out, json.dumps(payload))
+
+        # The transcript is on disk, so the checkpoint has nothing left to
+        # protect. Removed after the write, not before: a crash between the two
+        # costs one redundant resume rather than the whole run.
+        ckpt_path.unlink(missing_ok=True)
 
         elapsed = time.monotonic() - started
         total = result.sentences[-1].end if result.sentences else 0.0
-        report(Progress(total, total, elapsed), "done")
+        report(Progress(total, total, elapsed, resumed_from_s), "done")
         return payload
 
 
@@ -204,6 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--out", type=Path, required=True)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--status", type=Path, help="JSON heartbeat file for detached runs")
+    ap.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="ignore any checkpoint from an interrupted run and start over",
+    )
     args = ap.parse_args(argv)
 
     # \r only rewrites the line on a terminal; when piped, print one line per
@@ -225,7 +302,12 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     try:
         result = transcribe(
-            args.media, args.out, args.model, status_path=args.status, on_progress=show
+            args.media,
+            args.out,
+            args.model,
+            status_path=args.status,
+            on_progress=show,
+            resume=not args.no_resume,
         )
     except Exception as exc:
         # Record and re-raise: a detached watcher polling the heartbeat has no
@@ -244,15 +326,15 @@ def main(argv: list[str] | None = None) -> int:
         print(file=sys.stderr)
     elapsed = time.monotonic() - started
     total = result["sentences"][-1]["end"] if result["sentences"] else 0.0
-    # Progress.speed carries the zero-elapsed guard; recomputing the division
-    # here is what left this line unguarded in the first place. `--x` matches
-    # _clock's `--:--` for an unknown quantity -- `0.0x` would read as "slower
-    # than realtime", the opposite of the truth.
-    speed = Progress(total, total, elapsed).speed
-    rate = f"{speed:.1f}x" if speed else "--x"
+    # No realtime multiple here any more. `total / elapsed` describes this run's
+    # wall clock against the WHOLE file's duration, which on a resumed run
+    # credits this process with work a previous one paid for -- an hour of audio
+    # finished in the last two minutes reads as 30x. The live bar still reports
+    # speed, correctly, because Progress.resumed_from_s lets it subtract the
+    # banked audio; the summary has no such number to hand. Two plain durations
+    # the reader can divide themselves beat one confident wrong figure.
     print(
-        f"done: {_clock(total)} audio in {_clock(elapsed)} "
-        f"({rate} realtime) -> {args.out}",
+        f"done: {_clock(total)} audio in {_clock(elapsed)} -> {args.out}",
         file=sys.stderr,
     )
     return 0

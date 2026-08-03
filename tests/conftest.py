@@ -9,7 +9,7 @@ re-reads on every call.
 
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,79 +29,103 @@ CLIP_SECONDS = 360
 
 @dataclass
 class FakeToken:
+    """A token spec, converted to a real AlignedToken on every generate() call.
+
+    Fresh objects per call, deliberately: transcribe_chunked mutates
+    token.start in place to apply the chunk offset, so a shared instance would
+    accumulate offsets across chunks.
+    """
+
     start: float
     end: float
     text: str
-
-
-@dataclass
-class FakeSentence:
-    start: float
-    end: float
-    text: str
-    tokens: list[FakeToken] = field(default_factory=list)
-
-
-class FakeAlignedResult:
-    def __init__(self, sentences: list[FakeSentence]) -> None:
-        self.sentences = sentences
-        self.text = " ".join(s.text for s in sentences)
 
 
 class FakeModel:
     """Stands in for parakeet_mlx.parakeet.BaseParakeet.
 
-    Mirrors the two things transcribe() touches: preprocessor_config.sample_rate
-    and transcribe(path, *, chunk_duration, overlap_duration, chunk_callback).
+    Mirrors what deixis.chunking.transcribe_chunked touches:
+    preprocessor_config.sample_rate, preprocessor_config.hop_length, and
+    generate(mel, decoding_config=...). The chunk loop, the offsets and the
+    merge are the REAL ones -- only the decode is faked -- so these tests
+    exercise the boundary arithmetic they appear to.
+
+    `audio_s` defaults under CHUNK_S so a fake run is a single chunk and the
+    overlap merge never runs on synthetic tokens, where its behaviour would be
+    arbitrary. Tests that want several chunks pass a longer `audio_s` together
+    with `tokens=[]`; the multi-chunk merge is proved against the real model in
+    tests/test_chunking.py, not here.
     """
 
     def __init__(
         self,
         sample_rate: int = 16_000,
-        sentences: list[FakeSentence] | None = None,
-        chunk_positions: list[tuple[float, float]] | None = None,
+        tokens: list[FakeToken] | None = None,
+        audio_s: float = 100.0,
+        hop_length: int = 160,
     ) -> None:
-        self.preprocessor_config = SimpleNamespace(sample_rate=sample_rate)
-        self.sentences = sentences if sentences is not None else []
-        # (current, full) pairs in SAMPLES, exactly as parakeet passes them.
-        self.chunk_positions = chunk_positions or []
-        self.calls: list[dict] = []
-
-    def transcribe(
-        self,
-        path,
-        *,
-        chunk_duration=None,
-        overlap_duration=15.0,
-        chunk_callback=None,
-    ) -> FakeAlignedResult:
-        self.calls.append(
-            {
-                "path": path,
-                "chunk_duration": chunk_duration,
-                "overlap_duration": overlap_duration,
-            }
+        self.preprocessor_config = SimpleNamespace(
+            sample_rate=sample_rate, hop_length=hop_length
         )
-        for current, full in self.chunk_positions:
-            if chunk_callback is not None:
-                chunk_callback(current, full)
-        return FakeAlignedResult(self.sentences)
+        self.tokens = tokens if tokens is not None else []
+        self.total_samples = int(audio_s * sample_rate)
+        self.mels: list = []
+
+    def generate(self, mel, *, decoding_config=None):
+        from parakeet_mlx.alignment import (
+            AlignedToken,
+            SentenceConfig,
+            sentences_to_result,
+            tokens_to_sentences,
+        )
+
+        self.mels.append(mel)
+        decoded = [
+            AlignedToken(id=i, text=t.text, start=t.start, duration=t.end - t.start)
+            for i, t in enumerate(self.tokens)
+        ]
+        cfg = (decoding_config.sentence if decoding_config else None) or SentenceConfig()
+        return [sentences_to_result(tokens_to_sentences(decoded, cfg))]
 
 
 @pytest.fixture
 def fake_parakeet(monkeypatch):
     """Install a FakeModel in place of the real weights.
 
+    Also stubs the two library functions the fake model cannot stand in for:
+    load_audio (which would shell out to ffmpeg on a path that need not exist)
+    and get_logmel (which would compute a real mel spectrogram the fake decoder
+    then ignores). `range` stands in for the decoded samples -- it has a len,
+    it slices, and it costs nothing at 74-minute lengths.
+
     Usage:
-        model = fake_parakeet(sample_rate=16_000, sentences=[...])
+        model = fake_parakeet(sample_rate=16_000, tokens=[...])
     """
 
     def install(**kwargs) -> FakeModel:
         model = FakeModel(**kwargs)
         monkeypatch.setattr("parakeet_mlx.from_pretrained", lambda model_id: model)
+        monkeypatch.setattr(
+            "parakeet_mlx.audio.load_audio",
+            lambda path, rate, *a, **k: range(model.total_samples),
+        )
+        monkeypatch.setattr("deixis.chunking.get_logmel", lambda audio, cfg: audio)
         return model
 
     return install
+
+
+@pytest.fixture
+def fake_media(tmp_path: Path) -> Path:
+    """A real file to stand in as the source media for a faked run.
+
+    It needs to exist even though load_audio is stubbed and never opens it:
+    transcribe() fingerprints the source by size and mtime, and stat() on a
+    path that is not there raises.
+    """
+    p = tmp_path / "in.wav"
+    p.write_bytes(b"RIFF")
+    return p
 
 
 @pytest.fixture
