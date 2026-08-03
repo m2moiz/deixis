@@ -71,7 +71,7 @@ def test_render_bar_shows_absolute_durations_not_just_a_percentage():
     the percentage and the ETA were byte-identical. The absolute clocks and
     the speed are the only fields that catch a units error.
     """
-    assert render_bar(REAL) == (
-        "[####--------------------]  17%  "
+    assert render_bar(REAL, "running") == (
+        "   running [####--------------------]  17%  "
         "12:30/1:13:47 audio  elapsed 0:21  eta 1:45  34.9x"
     )

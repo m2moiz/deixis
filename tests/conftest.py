@@ -115,3 +115,24 @@ def frozen_clock(monkeypatch):
         monkeypatch.setattr("deixis.transcribe.time.monotonic", monotonic)
 
     return install
+
+
+@pytest.fixture(autouse=True)
+def already_extracted_media(monkeypatch):
+    """Make transcribe() treat any path as an already-conforming wav.
+
+    These tests are about the callback wiring and the emitted index, not about
+    ffmpeg. Stubbing probe() keeps them free of both model weights AND a real
+    media file, so they stay fast and hermetic; deixis/media.py's own behaviour
+    is covered separately against real fixtures.
+    """
+    from deixis import media
+
+    monkeypatch.setattr(
+        media,
+        "probe",
+        lambda path: media.AudioStream(
+            codec_name="pcm_s16le", sample_rate=16_000, channels=1, duration_s=4427.028
+        ),
+    )
+    monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: False)

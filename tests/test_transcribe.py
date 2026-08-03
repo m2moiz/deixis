@@ -38,7 +38,7 @@ def test_transcribe_reports_progress_in_seconds(fake_parakeet, tmp_path):
     transcribe(
         tmp_path / "in.wav",
         tmp_path / "out.json",
-        on_progress=seen.append,
+        on_progress=lambda p, state: seen.append(p) if state == "running" else None,
     )
 
     assert seen[-1].audio_done_s == pytest.approx(750.0)
@@ -57,7 +57,7 @@ def test_transcribe_uses_the_models_sample_rate(fake_parakeet, tmp_path):
     transcribe(
         tmp_path / "in.wav",
         tmp_path / "out.json",
-        on_progress=seen.append,
+        on_progress=lambda p, state: seen.append(p) if state == "running" else None,
     )
 
     assert seen[-1].audio_done_s == pytest.approx(10.0)
@@ -111,8 +111,9 @@ def test_status_file_carries_seconds_and_a_state(fake_parakeet, tmp_path):
 
     # Reading from inside on_progress pins the production fan-out order: emit
     # writes the status file first, then calls on_progress.
-    def capture(_p):
-        seen.append(json.loads(status.read_text()))
+    def capture(_p, state):
+        if state == "running":
+            seen.append(json.loads(status.read_text()))
 
     transcribe(
         tmp_path / "in.wav",

@@ -12,10 +12,15 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable
+
+# Imported as media_mod because the parameter it serves is named `media` and
+# would shadow the module inside the function body.
+from deixis import media as media_mod
 
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
@@ -58,11 +63,11 @@ def _clock(seconds: float | None) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def render_bar(p: Progress, width: int = 24) -> str:
+def render_bar(p: Progress, state: str, width: int = 24) -> str:
     filled = int(p.fraction * width)
     bar = "#" * filled + "-" * (width - filled)
     return (
-        f"[{bar}] {p.fraction * 100:3.0f}%  "
+        f"{state:>10} [{bar}] {p.fraction * 100:3.0f}%  "
         f"{_clock(p.audio_done_s)}/{_clock(p.audio_total_s)} audio  "
         f"elapsed {_clock(p.elapsed_s)}  eta {_clock(p.eta_s)}  {p.speed:.1f}x"
     )
@@ -88,21 +93,28 @@ def _make_chunk_callback(
 
 
 def transcribe(
-    audio: Path,
+    media: Path,
     out: Path,
     model_id: str = DEFAULT_MODEL,
     status_path: Path | None = None,
-    on_progress: Callable[[Progress], None] | None = None,
+    on_progress: Callable[[Progress, str], None] | None = None,
 ) -> dict:
-    """Transcribe `audio`, writing a sentence+token timestamped JSON to `out`.
+    """Transcribe `media`, writing a sentence+token timestamped JSON to `out`.
 
-    Returns the parsed result. `status_path` receives a JSON heartbeat on every
-    chunk so a detached run stays observable.
+    `media` is any file ffmpeg can open -- the .mov straight off the screen
+    recorder is the normal case. Audio is extracted to a temp file first,
+    unless the input is already in the shape the model consumes.
+
+    Returns the parsed result. `status_path` receives a JSON heartbeat during
+    both phases so a detached run stays observable.
     """
     from parakeet_mlx import from_pretrained
 
     started = time.monotonic()
+    # Load first: the extraction target rate is a property of this model's
+    # preprocessor, not a constant we get to assume.
     model = from_pretrained(model_id)
+    rate = model.preprocessor_config.sample_rate
 
     def write_status(p: Progress, state: str) -> None:
         if status_path is None:
@@ -115,52 +127,77 @@ def transcribe(
         }
         status_path.write_text(json.dumps(payload))
 
-    def emit(p: Progress) -> None:
-        write_status(p, "running")
+    def report(p: Progress, state: str) -> None:
+        write_status(p, state)
         if on_progress:
-            on_progress(p)
+            on_progress(p, state)
 
-    # Read the rate off the model rather than assuming 16kHz.
-    chunk_callback = _make_chunk_callback(
-        model.preprocessor_config.sample_rate,
-        lambda: time.monotonic() - started,
-        emit,
-    )
+    stream = media_mod.probe(media)
 
-    result = model.transcribe(
-        audio,
-        chunk_duration=CHUNK_S,
-        overlap_duration=OVERLAP_S,
-        chunk_callback=chunk_callback,
-    )
+    with tempfile.TemporaryDirectory(prefix="deixis-") as tmp:
+        if media_mod.needs_conversion(stream, rate):
+            # Per-phase clock. Extraction runs three orders of magnitude faster
+            # than realtime and the transcription that follows around 20x;
+            # sharing one elapsed would make both speeds meaningless.
+            extract_started = time.monotonic()
 
-    payload = {
-        "audio": str(audio),
-        "model": model_id,
-        "text": result.text,
-        "sentences": [
-            {
-                "start": s.start,
-                "end": s.end,
-                "text": s.text,
-                "tokens": [{"t": t.start, "w": t.text} for t in s.tokens],
-            }
-            for s in result.sentences
-        ],
-    }
-    out.write_text(json.dumps(payload))
+            def on_extract(done_s: float) -> None:
+                report(
+                    Progress(done_s, stream.duration_s, time.monotonic() - extract_started),
+                    "extracting",
+                )
 
-    elapsed = time.monotonic() - started
-    total = result.sentences[-1].end if result.sentences else 0.0
-    write_status(Progress(total, total, elapsed), "done")
-    return payload
+            audio = media_mod.extract_audio(
+                media, Path(tmp) / "audio.wav", rate, on_progress=on_extract
+            )
+        else:
+            audio = media
+
+        # Per-phase clock, as above: transcription runs at a different order of
+        # magnitude from extraction, so they cannot share an elapsed.
+        transcribe_started = time.monotonic()
+        chunk_callback = _make_chunk_callback(
+            rate,
+            lambda: time.monotonic() - transcribe_started,
+            lambda p: report(p, "running"),
+        )
+
+        result = model.transcribe(
+            audio,
+            chunk_duration=CHUNK_S,
+            overlap_duration=OVERLAP_S,
+            chunk_callback=chunk_callback,
+        )
+
+        payload = {
+            # The source the user handed us, never the temp wav -- this JSON is
+            # an index into that file and has to keep pointing at it.
+            "audio": str(media),
+            "model": model_id,
+            "text": result.text,
+            "sentences": [
+                {
+                    "start": s.start,
+                    "end": s.end,
+                    "text": s.text,
+                    "tokens": [{"t": t.start, "w": t.text} for t in s.tokens],
+                }
+                for s in result.sentences
+            ],
+        }
+        out.write_text(json.dumps(payload))
+
+        elapsed = time.monotonic() - started
+        total = result.sentences[-1].end if result.sentences else 0.0
+        report(Progress(total, total, elapsed), "done")
+        return payload
 
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
     ap = argparse.ArgumentParser(description="Transcribe media to a timestamped index.")
-    ap.add_argument("audio", type=Path)
+    ap.add_argument("media", type=Path, help="video or audio file; a .mov is the normal case")
     ap.add_argument("-o", "--out", type=Path, required=True)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--status", type=Path, help="JSON heartbeat file for detached runs")
@@ -170,15 +207,32 @@ def main(argv: list[str] | None = None) -> int:
     # chunk instead so a captured log stays readable rather than becoming one
     # enormous line of control characters.
     tty = sys.stderr.isatty()
+    last_state = ""
 
-    def show(p: Progress) -> None:
+    def show(p: Progress, state: str) -> None:
+        # A phase change ends the rewritten line, so the finished extraction bar
+        # stays on screen instead of being overwritten by transcription's 0%.
+        nonlocal last_state
+        if tty and last_state and state != last_state:
+            print(file=sys.stderr)
+        last_state = state
         end = "\r" if tty else "\n"
-        print(render_bar(p), end=end, file=sys.stderr, flush=True)
+        print(render_bar(p, state), end=end, file=sys.stderr, flush=True)
 
     started = time.monotonic()
-    result = transcribe(
-        args.audio, args.out, args.model, status_path=args.status, on_progress=show
-    )
+    try:
+        result = transcribe(
+            args.media, args.out, args.model, status_path=args.status, on_progress=show
+        )
+    except Exception as exc:
+        # Record and re-raise: a detached watcher polling the heartbeat has no
+        # other way to distinguish "died" from "not started yet". The traceback
+        # still reaches the terminal untouched.
+        if args.status:
+            args.status.write_text(
+                json.dumps({"state": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            )
+        raise
     if tty:
         print(file=sys.stderr)
     elapsed = time.monotonic() - started
