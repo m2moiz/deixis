@@ -17,9 +17,9 @@ import json
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 
 class MediaError(RuntimeError):
@@ -73,6 +73,10 @@ def probe(media: Path) -> AudioStream:
         ],
         capture_output=True,
         text=True,
+        # Explicitly not check=True: a non-zero exit is handled two lines down,
+        # where ffprobe's own stderr becomes an actionable MediaError. Raising
+        # CalledProcessError here would replace that with a bare exit code.
+        check=False,
     )
     if proc.returncode != 0:
         raise MediaError(

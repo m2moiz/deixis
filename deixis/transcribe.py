@@ -14,9 +14,9 @@ import json
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.

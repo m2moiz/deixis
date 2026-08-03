@@ -11,7 +11,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "ruff>=0.16.1",
 ]
 
 # pythonpath is load-bearing, not cosmetic: there is no [build-system], so uv
