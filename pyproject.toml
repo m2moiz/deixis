@@ -21,3 +21,7 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q --strict-markers"
+# Registered, not deselected: --strict-markers turns an unknown mark into a
+# collection error, and a test carved out of the default run is a test nobody
+# observes. `-m "not slow"` is there for anyone who wants the fast loop.
+markers = ["slow: loads the ASR model"]

@@ -12,6 +12,10 @@ from conftest import FakeSentence, FakeToken
 
 from deixis.transcribe import CHUNK_S, OVERLAP_S, Progress, transcribe
 
+# transcribe() probes its input for real; these tests feed it paths that do not
+# exist, so they need the stub that used to be autouse in conftest.
+pytestmark = pytest.mark.usefixtures("already_extracted_media")
+
 RATE = 16_000
 
 

@@ -117,14 +117,19 @@ def frozen_clock(monkeypatch):
     return install
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def already_extracted_media(monkeypatch):
     """Make transcribe() treat any path as an already-conforming wav.
 
-    These tests are about the callback wiring and the emitted index, not about
+    Those tests are about the callback wiring and the emitted index, not about
     ffmpeg. Stubbing probe() keeps them free of both model weights AND a real
-    media file, so they stay fast and hermetic; deixis/media.py's own behaviour
-    is covered separately against real fixtures.
+    media file, so they stay fast and hermetic.
+
+    Opt-in, not autouse: test_media.py and test_transcribe_e2e.py exercise the
+    real ffmpeg path, and an autouse stub of probe()/needs_conversion() would
+    silently replace the behaviour they exist to assert. A module that wants
+    the stub asks for it with
+    `pytestmark = pytest.mark.usefixtures("already_extracted_media")`.
     """
     from deixis import media
 
