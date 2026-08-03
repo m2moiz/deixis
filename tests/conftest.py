@@ -1,4 +1,4 @@
-"""Test doubles for parakeet-mlx.
+"""Test doubles for parakeet-mlx, and the real clips the slow tests need.
 
 from_pretrained downloads and loads ~2.4 GB of weights, which no unit test can
 afford. transcribe() imports it inside the function body, so there is no
@@ -7,10 +7,24 @@ source module, parakeet_mlx.from_pretrained, which the function-local import
 re-reads on every call.
 """
 
+import shutil
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+SOURCE_AUDIO = REPO / "scratch" / "meeting.wav"
+
+# 360s is the smallest clip that produces more than two chunks under the default
+# 120s/15s geometry (starts at 0, 105, 210, 315), which is the minimum needed to
+# show that a resumed run merges the way an uninterrupted one did. scratch/
+# clip45.wav cannot serve: at 45 seconds it is under CHUNK_S and parakeet-mlx
+# returns before the chunk loop ever runs (parakeet.py:173-175), so nothing this
+# feature is about is observable on it.
+CLIP_SECONDS = 360
 
 
 @dataclass
@@ -141,3 +155,31 @@ def already_extracted_media(monkeypatch):
         ),
     )
     monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: False)
+
+
+@pytest.fixture(scope="session")
+def chunked_audio_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A real clip long enough to cross several chunk boundaries."""
+    if not SOURCE_AUDIO.exists():
+        pytest.skip(f"{SOURCE_AUDIO} not present")
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not on PATH")
+
+    # Cached beside the source rather than under tmp_path: cutting it costs a
+    # couple of seconds and every test session would otherwise pay it again.
+    clip = SOURCE_AUDIO.parent / f"clip{CLIP_SECONDS}.wav"
+    if not clip.exists():
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+             "-i", str(SOURCE_AUDIO), "-t", str(CLIP_SECONDS),
+             "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(clip)],
+            check=True, capture_output=True,
+        )
+    return clip
+
+
+@pytest.fixture(scope="session")
+def model_id() -> str:
+    from deixis.transcribe import DEFAULT_MODEL
+
+    return DEFAULT_MODEL
