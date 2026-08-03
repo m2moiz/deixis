@@ -9,6 +9,11 @@ dependencies = [
     "parakeet-mlx>=0.5.2",
 ]
 
+[project.optional-dependencies]
+diarize = [
+    "senko>=0.1.0,<0.2",
+]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.411",
