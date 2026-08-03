@@ -237,9 +237,15 @@ def main(argv: list[str] | None = None) -> int:
         print(file=sys.stderr)
     elapsed = time.monotonic() - started
     total = result["sentences"][-1]["end"] if result["sentences"] else 0.0
+    # Progress.speed carries the zero-elapsed guard; recomputing the division
+    # here is what left this line unguarded in the first place. `--x` matches
+    # _clock's `--:--` for an unknown quantity -- `0.0x` would read as "slower
+    # than realtime", the opposite of the truth.
+    speed = Progress(total, total, elapsed).speed
+    rate = f"{speed:.1f}x" if speed else "--x"
     print(
         f"done: {_clock(total)} audio in {_clock(elapsed)} "
-        f"({total / elapsed:.1f}x realtime) -> {args.out}",
+        f"({rate} realtime) -> {args.out}",
         file=sys.stderr,
     )
     return 0

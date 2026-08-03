@@ -71,3 +71,19 @@ def test_summary_reports_the_realtime_multiple(
     main([str(tmp_path / "in.wav"), "-o", str(out)])
 
     assert "6.0x realtime" in capsys.readouterr().err
+
+
+def test_unknown_speed_renders_as_dashes_not_zero(
+    fake_parakeet, frozen_clock, tmp_path, capsys
+):
+    """0.0x for an instantaneous run reads as 'slower than realtime', which is
+    the opposite of the truth. Match _clock's --:-- convention for unknown."""
+    fake_parakeet(sentences=_sentences())
+    frozen_clock([1000.0])
+    out = tmp_path / "out.json"
+
+    main([str(tmp_path / "in.wav"), "-o", str(out)])
+
+    err = capsys.readouterr().err
+    assert "--x realtime" in err
+    assert "0.0x realtime" not in err
