@@ -9,3 +9,6 @@ __pycache__/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Planning docs stay local (global pre-commit hook denies AI tooling files)
+.planning/
