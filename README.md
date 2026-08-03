@@ -71,6 +71,20 @@ model the plain ONNX Runtime CPU kernels win outright. General lesson: a
 triple-digit partition count in an EP load warning means the accelerator is
 hurting you — benchmark against CPU before assuming otherwise.
 
+**Ingestion: deixis runs ffmpeg itself, though it does not have to.**
+`parakeet-mlx` already shells out to ffmpeg for any input, so a `.mov` would
+load without a line of code here. It is done in `deixis/media.py` anyway for
+two things that call cannot give: progress during the tens of seconds an
+hour-long 4 GB recording takes to demux (~1000x realtime, measured on a
+74-minute wav), and an error you can act on — parakeet's own failure surfaces
+as the ffmpeg build banner with the diagnosis buried in it.
+
+The extracted wav lives in a temp directory for the length of the run and is
+not cached. Extraction is a small fraction of wall time, and caching would mean
+inventing invalidation and leaving 135 MB files next to the user's recordings.
+Anyone who wants the wav can extract it by hand and pass it — the conversion
+step is skipped when the input is already mono `pcm_s16le` at the model's rate.
+
 **Vision, not OCR — `mlx-vlm` + Qwen2.5-VL-7B-Instruct (4-bit, ~5-6GB RAM).**
 Qwen2.5-VL leads DocVQA (96.4% at 72B, near the ~98.1% human ceiling) and scores
 89.5% on ChartQA. `mlx-vlm` is very actively maintained. Fallback for missed
