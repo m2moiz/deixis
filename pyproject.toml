@@ -1,0 +1,10 @@
+[project]
+name = "deixis"
+version = "0.1.0"
+description = "Make a long screen recording answerable: a timestamped transcript indexes the video, frames are retrieved on demand."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numba>=0.61",
+    "parakeet-mlx>=0.5.2",
+]
