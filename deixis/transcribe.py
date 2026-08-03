@@ -21,6 +21,7 @@ from pathlib import Path
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.
 from deixis import media as media_mod
+from deixis.atomic import atomic_write_text
 
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
@@ -125,7 +126,9 @@ def transcribe(
             "speed": round(p.speed, 2),
             "eta_s": p.eta_s,
         }
-        status_path.write_text(json.dumps(payload))
+        # Not fsynced: a reader is protected by the rename alone, and a
+        # heartbeat lost to a power cut costs nothing to regenerate.
+        atomic_write_text(status_path, json.dumps(payload))
 
     def report(p: Progress, state: str) -> None:
         write_status(p, state)
@@ -229,8 +232,12 @@ def main(argv: list[str] | None = None) -> int:
         # other way to distinguish "died" from "not started yet". The traceback
         # still reaches the terminal untouched.
         if args.status:
-            args.status.write_text(
-                json.dumps({"state": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            # Atomic for the same reason as the heartbeat, and more so: the
+            # watcher polling for exactly this document is in a tight read loop,
+            # which makes it the reader most likely to land inside a torn write.
+            atomic_write_text(
+                args.status,
+                json.dumps({"state": "failed", "error": f"{type(exc).__name__}: {exc}"}),
             )
         raise
     if tty:

@@ -6,6 +6,7 @@ half a unit test cannot see.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 from conftest import FakeSentence, FakeToken
@@ -158,3 +159,72 @@ def test_no_status_path_writes_nothing(fake_parakeet, tmp_path):
     transcribe(tmp_path / "in.wav", tmp_path / "out.json")
 
     assert list(tmp_path.iterdir()) == [tmp_path / "out.json"]
+
+
+def _spy_on_atomic_write(monkeypatch) -> list[Path]:
+    """Record every path routed through the atomic writer, and really write it."""
+    import deixis.transcribe as transcribe_mod
+
+    seen: list[Path] = []
+    real = transcribe_mod.atomic_write_text
+
+    def spy(path, text, **kwargs):
+        seen.append(path)
+        real(path, text, **kwargs)
+
+    monkeypatch.setattr(transcribe_mod, "atomic_write_text", spy)
+    return seen
+
+
+def test_the_heartbeat_is_written_through_the_atomic_writer(
+    fake_parakeet, tmp_path, monkeypatch
+):
+    """Guards the call site, not the writer.
+
+    tests/test_atomic.py proves atomic_write_text is atomic; it says nothing
+    about whether transcribe() still calls it. A merge that resolves this line
+    back to status_path.write_text reintroduces the torn read with the whole
+    suite green, so the wiring needs its own assertion.
+    """
+    fake_parakeet(
+        sample_rate=RATE,
+        sentences=_sentences(),
+        chunk_positions=[(750.0 * RATE, 4427.028 * RATE)],
+    )
+    status = tmp_path / "status.json"
+    seen = _spy_on_atomic_write(monkeypatch)
+
+    transcribe(tmp_path / "in.wav", tmp_path / "out.json", status_path=status)
+
+    assert seen.count(status) >= 2, "every heartbeat must go through the atomic writer"
+    assert json.loads(status.read_text())["state"] == "done"
+
+
+def test_the_failure_status_is_written_through_the_atomic_writer(
+    fake_parakeet, tmp_path, monkeypatch
+):
+    """main()'s except-handler writes the one document a watcher polls hardest.
+
+    A watcher distinguishing "died" from "not started yet" reads this file in a
+    tight loop, so it is the reader most likely to land inside a torn write.
+    """
+    import deixis.transcribe as transcribe_mod
+
+    status = tmp_path / "status.json"
+    seen = _spy_on_atomic_write(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(transcribe_mod, "transcribe", boom)
+
+    with pytest.raises(RuntimeError):
+        transcribe_mod.main(
+            [str(tmp_path / "in.wav"), "-o", str(tmp_path / "out.json"),
+             "--status", str(status)]
+        )
+
+    assert seen == [status]
+    failed = json.loads(status.read_text())
+    assert failed["state"] == "failed"
+    assert "model exploded" in failed["error"]
