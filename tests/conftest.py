@@ -181,6 +181,66 @@ def already_extracted_media(monkeypatch):
     monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: False)
 
 
+@pytest.fixture
+def fake_turns(monkeypatch):
+    """Install a stand-in for the diarization pass.
+
+    Loading senko costs ~12s of CoreML model load, so no fast test may reach
+    the real one. transcribe() imports deixis.diarize inside the function body
+    for the same reason it imports parakeet there -- the extra is usually
+    absent -- so the patch target is the source module, whose attribute the
+    function-local import re-reads on every call.
+
+    Usage:
+        fake_turns(turns=[Turn(0.0, 400.0, 0)], labels=["SPEAKER_01"])
+        fake_turns(raises=DiarizationUnavailable("nope"))
+        fake_turns(turns=[...], labels=[...], then=lambda wav: ...)
+
+    `then` runs inside the faked diarization call, which is where a test can
+    observe what was already on disk when the pass began.
+    """
+    from deixis.diarize import Diarization
+
+    def install(turns=None, labels=None, raises=None, then=None):
+        calls: list[Path] = []
+
+        def speaker_turns(wav: Path) -> Diarization:
+            calls.append(wav)
+            if then is not None:
+                then(wav)
+            if raises is not None:
+                raise raises
+            return Diarization(
+                turns=list(turns or []),
+                labels=list(labels or []),
+                provenance="senko 0.0.0-fake",
+            )
+
+        monkeypatch.setattr("deixis.diarize.speaker_turns", speaker_turns)
+        return calls
+
+    return install
+
+
+@pytest.fixture
+def no_real_diarizer(fake_turns):
+    """Make diarization fail cheaply, for tests that are about something else.
+
+    Diarization is on by default, so every faked run would otherwise reach the
+    real senko: ~12s of CoreML model load (~51s the first time on a machine),
+    against a stand-in media file it cannot open anyway. The run degrades and
+    the test still passes -- which is exactly the problem, because it passes
+    twelve seconds slower and nothing says why.
+
+    A module asks for it with
+    `pytestmark = pytest.mark.usefixtures("no_real_diarizer")`, and any test in
+    it that actually wants labels calls `fake_turns` itself, replacing this.
+    """
+    from deixis.diarize import DiarizationUnavailable
+
+    fake_turns(raises=DiarizationUnavailable("no diarizer in this test"))
+
+
 @pytest.fixture(scope="session")
 def chunked_audio_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A real clip long enough to cross several chunk boundaries."""

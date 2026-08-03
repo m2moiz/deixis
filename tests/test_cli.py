@@ -20,9 +20,10 @@ from conftest import FakeToken
 
 from deixis.transcribe import main
 
-# main() feeds a path straight through transcribe(), which probes it for real;
-# these tests are about the summary and not about ffmpeg, so they need the stub.
-pytestmark = pytest.mark.usefixtures("already_extracted_media")
+# main() feeds a path straight through transcribe(), which probes it for real
+# and diarizes for real; these tests are about the summary and about neither of
+# those, so they need both stubs.
+pytestmark = pytest.mark.usefixtures("already_extracted_media", "no_real_diarizer")
 
 
 def _tokens() -> list[FakeToken]:
@@ -116,3 +117,52 @@ def test_no_resume_is_passed_through(fake_parakeet, fake_media, tmp_path, monkey
     main([str(fake_media), "-o", str(tmp_path / "b.json")])
 
     assert seen == [False, True]
+
+
+def test_the_diarize_flags_are_passed_through(fake_parakeet, fake_media, tmp_path, monkeypatch):
+    """Two booleans, not a tri-state: does it run, and is failure fatal.
+
+    A flag argparse accepts and main() then drops is worse than no flag: the
+    user gets the behaviour they asked to avoid, silently and with exit 0.
+    """
+    import deixis.transcribe as transcribe_mod
+
+    fake_parakeet(tokens=_tokens())
+    seen: list[tuple[bool, bool]] = []
+    real = transcribe_mod.transcribe
+
+    def spy(*args, **kwargs):
+        seen.append((kwargs["diarize"], kwargs["require_diarize"]))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(transcribe_mod, "transcribe", spy)
+
+    main([str(fake_media), "-o", str(tmp_path / "a.json"), "--no-diarize"])
+    main([str(fake_media), "-o", str(tmp_path / "b.json")])
+
+    assert seen == [(False, False), (True, False)]
+
+
+def test_the_summary_counts_speakers_only_when_there_are_some(
+    fake_parakeet, fake_media, tmp_path, capsys, fake_turns
+):
+    """The one number the summary can gain without bringing back a rate.
+
+    `total / elapsed` is deliberately absent from this line (see the module
+    docstring); a count read out of the payload cannot divide by zero and
+    cannot credit this run with a previous one's work.
+    """
+    from deixis.merge import Turn
+
+    fake_parakeet(tokens=_tokens())
+    fake_turns(turns=[Turn(0.0, 20.0, 0), Turn(20.0, 30.0, 1)],
+               labels=["SPEAKER_01", "SPEAKER_02"])
+
+    main([str(fake_media), "-o", str(tmp_path / "out.json")])
+    assert "2 speakers ->" in capsys.readouterr().err
+
+    # Degraded: no speakers key, so nothing to count and nothing claimed.
+    main([str(fake_media), "-o", str(tmp_path / "plain.json"), "--no-diarize"])
+    err = capsys.readouterr().err
+    assert "speakers" not in err
+    assert "0:12 audio" in err

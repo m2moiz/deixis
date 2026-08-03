@@ -16,11 +16,13 @@ import pytest
 from conftest import FakeToken
 
 from deixis.checkpoint import checkpoint_path_for
+from deixis.diarize import DiarizationUnavailable
+from deixis.merge import Turn
 from deixis.transcribe import CHUNK_S, OVERLAP_S, Progress, transcribe
 
 # transcribe() probes its input for real; these tests care about the chunk loop
 # and not about ffmpeg, so they need the stub that used to be autouse.
-pytestmark = pytest.mark.usefixtures("already_extracted_media")
+pytestmark = pytest.mark.usefixtures("already_extracted_media", "no_real_diarizer")
 
 RATE = 16_000
 
@@ -317,3 +319,241 @@ def test_the_failure_status_is_written_through_the_atomic_writer(
     failed = json.loads(status.read_text())
     assert failed["state"] == "failed"
     assert "model exploded" in failed["error"]
+
+
+# --- speaker labels ------------------------------------------------------
+
+
+def _one_speaker(**kw):
+    """The fake diarization every labelled test below uses unless it says more.
+
+    One turn spanning the whole of _tokens()'s single 750s sentence, so the
+    token vote has an unambiguous answer and the tests can be about the wiring.
+    """
+    return dict(turns=[Turn(0.0, 800.0, 0)], labels=["SPEAKER_01"], **kw)
+
+
+def test_sentences_carry_a_speaker_index_into_the_speakers_list(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    fake_parakeet(tokens=_tokens())
+    fake_turns(**_one_speaker())
+    out = tmp_path / "out.json"
+
+    payload = transcribe(fake_media, out)
+
+    on_disk = json.loads(out.read_text())
+    assert on_disk == payload
+    assert on_disk["speakers"] == ["SPEAKER_01"]
+    assert on_disk["diarization"] == "senko 0.0.0-fake"
+    for sentence in on_disk["sentences"]:
+        assert 0 <= sentence["speaker"] < len(on_disk["speakers"])
+
+
+def test_the_labelled_schema_only_adds_keys(fake_parakeet, fake_media, tmp_path, fake_turns):
+    """Additive or nothing. Every downstream reader of the old shape still works.
+
+    Pinned against the unlabelled run in the same test rather than against a
+    literal key list, so this cannot drift out of agreement with the payload.
+    """
+    fake_parakeet(tokens=_tokens())
+    fake_turns(**_one_speaker())
+
+    plain = transcribe(fake_media, tmp_path / "plain.json", diarize=False)
+    labelled = transcribe(fake_media, tmp_path / "labelled.json")
+
+    assert set(labelled) - set(plain) == {"speakers", "diarization"}
+    assert set(plain) - set(labelled) == set()
+    for before, after in zip(plain["sentences"], labelled["sentences"]):
+        assert set(after) - set(before) == {"speaker"}
+        assert {k: after[k] for k in before} == before
+
+
+def test_no_diarize_output_is_the_old_schema_exactly(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """The byte-identity guard. --no-diarize must produce today's file.
+
+    `fake_turns` is installed and asserted never called: "the keys are absent"
+    would also hold for a pass that ran and failed, and those are different
+    bugs.
+    """
+    fake_parakeet(tokens=_tokens())
+    calls = fake_turns(**_one_speaker())
+    out = tmp_path / "out.json"
+
+    payload = transcribe(fake_media, out, diarize=False)
+
+    assert calls == []
+    assert set(payload) == {"audio", "model", "text", "sentences"}
+    assert set(payload["sentences"][0]) == {"start", "end", "text", "tokens"}
+
+
+def test_diarization_failure_leaves_a_complete_unlabelled_transcript(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """An optional pass may not cost the hour of ASR that ran before it."""
+    fake_parakeet(tokens=_tokens())
+    fake_turns(raises=DiarizationUnavailable("senko is not installed"))
+    out = tmp_path / "out.json"
+
+    payload = transcribe(fake_media, out)
+
+    on_disk = json.loads(out.read_text())
+    assert on_disk == payload
+    assert on_disk["sentences"][0]["text"] == "see this column here."
+    assert "speaker" not in on_disk["sentences"][0]
+    assert "speakers" not in on_disk
+    # The absence of this key is how a reader tells "not run" from "ran and
+    # found one speaker". A run that failed must not claim provenance.
+    assert "diarization" not in on_disk
+
+
+def test_require_diarize_makes_the_failure_fatal(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    fake_parakeet(tokens=_tokens())
+    fake_turns(raises=DiarizationUnavailable("senko is not installed"))
+    out = tmp_path / "out.json"
+
+    with pytest.raises(DiarizationUnavailable):
+        transcribe(fake_media, out, require_diarize=True)
+
+    # Still written: the caller asked for labels or nothing, but the ASR work
+    # is banked on disk either way and re-running it would cost the hour.
+    assert "speakers" not in json.loads(out.read_text())
+
+
+def test_a_bug_in_diarization_is_not_swallowed(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """Same narrowness as the boundary itself: only DiarizationUnavailable
+    degrades. A TypeError here is a bug in deixis and must be loud."""
+    fake_parakeet(tokens=_tokens())
+    fake_turns(raises=TypeError("unsupported operand"))
+
+    with pytest.raises(TypeError):
+        transcribe(fake_media, tmp_path / "out.json")
+
+
+def test_the_transcript_is_written_before_diarization_runs(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """§4's ordering, which is what makes optionality structural.
+
+    The fake reads `out` from inside the diarization call. A refactor that
+    holds the payload and writes once at the end breaks this and nothing else.
+    """
+    fake_parakeet(tokens=_tokens())
+    out = tmp_path / "out.json"
+    seen: list[dict] = []
+
+    fake_turns(**_one_speaker(then=lambda wav: seen.append(json.loads(out.read_text()))))
+
+    transcribe(fake_media, out)
+
+    assert seen, "diarization never ran"
+    assert seen[0]["sentences"][0]["text"] == "see this column here."
+    assert "speaker" not in seen[0]["sentences"][0]
+
+
+def test_the_checkpoint_is_gone_before_diarization_runs(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """The checkpoint protects ASR, and ASR is banked once `out` exists.
+
+    Left in place across this pass, a diarization crash would strand it, and
+    the next run would resume audio it has already transcribed.
+    """
+    fake_parakeet(sample_rate=RATE, tokens=[], audio_s=360.0)
+    out = tmp_path / "out.json"
+    ckpt = checkpoint_path_for(out)
+    seen: list[bool] = []
+
+    fake_turns(**_one_speaker(then=lambda wav: seen.append(ckpt.exists())))
+
+    transcribe(fake_media, out)
+
+    assert seen == [False]
+
+
+def test_the_diarizing_state_is_reported_between_running_and_done(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    fake_parakeet(sample_rate=RATE, tokens=_tokens(), audio_s=360.0)
+    fake_turns(**_one_speaker())
+    states: list[str] = []
+
+    transcribe(
+        fake_media,
+        tmp_path / "out.json",
+        on_progress=lambda p, state: states.append(state),
+    )
+
+    assert "diarizing" in states
+    assert states.index("running") < states.index("diarizing")
+    assert states.index("diarizing") < states.index("done")
+    # Two frames, not a bar: senko emits nothing from inside, so the honest
+    # report is a start and an end rather than invented intermediate progress.
+    assert states.count("diarizing") == 2
+
+
+def test_the_diarizing_heartbeat_reaches_the_status_file(
+    fake_parakeet, fake_media, tmp_path, fake_turns
+):
+    """A detached run is inspected through this file, and this is the phase a
+    watcher would otherwise see as a stall between "running" and "done"."""
+    fake_parakeet(sample_rate=RATE, tokens=_tokens(), audio_s=360.0)
+    status = tmp_path / "status.json"
+    seen: list[dict] = []
+
+    fake_turns(**_one_speaker(then=lambda wav: seen.append(json.loads(status.read_text()))))
+
+    transcribe(fake_media, tmp_path / "out.json", status_path=status)
+
+    assert seen[0]["state"] == "diarizing"
+
+
+def test_the_labelled_transcript_is_written_through_the_atomic_writer(
+    fake_parakeet, fake_media, tmp_path, fake_turns, monkeypatch
+):
+    """Two atomic writes to the same path, so there is no instant in which the
+    transcript is absent or partial. A merge that resolves either back to
+    write_text reintroduces the torn read with the whole suite green."""
+    fake_parakeet(tokens=_tokens())
+    out = tmp_path / "out.json"
+    fake_turns(**_one_speaker())
+    seen = _spy_on_atomic_write(monkeypatch)
+
+    transcribe(fake_media, out)
+
+    assert seen.count(out) == 2
+
+
+def test_the_diarizer_is_handed_the_extracted_wav_not_the_source(
+    fake_parakeet, fake_media, tmp_path, fake_turns, monkeypatch
+):
+    """senko wants a wav and the source is normally a .mov.
+
+    media.py already produces the 16 kHz mono pcm_s16le the ASR pass consumes,
+    and it lives only until the temp directory is torn down -- so the pass has
+    to run inside that window, against that file.
+    """
+    from deixis import media
+
+    fake_parakeet(tokens=_tokens())
+    extracted: list[Path] = []
+    monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: True)
+
+    def fake_extract(source, dest, rate, on_progress=None):
+        dest.write_bytes(b"RIFF")
+        extracted.append(dest)
+        return dest
+
+    monkeypatch.setattr(media, "extract_audio", fake_extract)
+    calls = fake_turns(**_one_speaker())
+
+    transcribe(fake_media, tmp_path / "out.json")
+
+    assert calls == extracted
+    assert calls[0] != fake_media

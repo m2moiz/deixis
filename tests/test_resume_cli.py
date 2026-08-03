@@ -23,7 +23,14 @@ def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Pa
     from deixis.transcribe import transcribe
 
     reference_out = tmp_path / "reference.json"
-    reference = transcribe(chunked_audio_path, reference_out, resume=False)
+    # diarize=False: these are about ASR, extraction and resume. Running the
+    # real diarizer here would add ~13s of CoreML model load per call and put
+    # an unsupervised clustering result inside equality assertions that must
+    # hold exactly. The pass has its own tests, and scratch/diarize_gate.py
+    # runs it end to end on the real meeting.
+    reference = transcribe(
+        chunked_audio_path, reference_out, resume=False, diarize=False
+    )
 
     out = tmp_path / "resumed.json"
 
@@ -41,7 +48,7 @@ def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Pa
             raise Interrupt
 
     with pytest.raises(Interrupt):
-        transcribe(chunked_audio_path, out, on_progress=die_after_two)
+        transcribe(chunked_audio_path, out, on_progress=die_after_two, diarize=False)
 
     ckpt = checkpoint_path_for(out)
     assert ckpt.exists(), "the interrupted run banked nothing"
@@ -50,7 +57,7 @@ def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Pa
     assert banked["tokens"]
     assert not out.exists(), "a partial transcript was written as if complete"
 
-    resumed = transcribe(chunked_audio_path, out)
+    resumed = transcribe(chunked_audio_path, out, diarize=False)
 
     assert resumed["sentences"] == reference["sentences"]
     assert resumed["text"] == reference["text"]
@@ -82,7 +89,7 @@ def test_a_checkpoint_for_different_audio_is_ignored(
         )
     )
 
-    result = transcribe(chunked_audio_path, out)
+    result = transcribe(chunked_audio_path, out, diarize=False)
     assert "wrong" not in result["text"]
     assert result["sentences"], "the run produced nothing"
 
@@ -93,7 +100,7 @@ def test_no_resume_ignores_an_existing_checkpoint(
     from deixis.transcribe import transcribe
 
     out = tmp_path / "out.json"
-    reference = transcribe(chunked_audio_path, out, resume=False)
+    reference = transcribe(chunked_audio_path, out, resume=False, diarize=False)
     assert reference["sentences"]
     assert not checkpoint_path_for(out).exists()
 
@@ -137,7 +144,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
             raise Interrupt
 
     with pytest.raises(Interrupt):
-        transcribe(mov, out, on_progress=die_after_two)
+        transcribe(mov, out, on_progress=die_after_two, diarize=False)
 
     ckpt = checkpoint_path_for(out)
     banked = json.loads(ckpt.read_text())
@@ -160,7 +167,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
         return original(model, audio_data, **kwargs)
 
     monkeypatch.setattr(chunking, "transcribe_chunked", spy)
-    transcribe(mov, out)
+    transcribe(mov, out, diarize=False)
 
     assert resumed_from == [first_next_start], (
         f"resumed from {resumed_from}, expected the banked {first_next_start}"

@@ -88,8 +88,13 @@ def test_mov_and_wav_produce_the_same_transcript(
     spoken_clip: tuple[Path, Path], tmp_path: Path
 ) -> None:
     mov, wav = spoken_clip
-    from_mov = transcribe(mov, tmp_path / "mov.json")
-    from_wav = transcribe(wav, tmp_path / "wav.json")
+# diarize=False: these are about ASR, extraction and resume. Running the
+    # real diarizer here would add ~13s of CoreML model load per call and put
+    # an unsupervised clustering result inside equality assertions that must
+    # hold exactly. The pass has its own tests, and scratch/diarize_gate.py
+    # runs it end to end on the real meeting.
+    from_mov = transcribe(mov, tmp_path / "mov.json", diarize=False)
+    from_wav = transcribe(wav, tmp_path / "wav.json", diarize=False)
 
     # "audio" differs by construction -- it records which file was handed in.
     # Everything the transcript *is* must match.
@@ -104,11 +109,19 @@ def test_the_temp_wav_does_not_outlive_the_run(
 ) -> None:
     mov, _ = spoken_clip
     before = set(Path(tempfile.gettempdir()).glob("deixis-*"))
-    transcribe(mov, tmp_path / "out.json")
+    transcribe(mov, tmp_path / "out.json", diarize=False)
     assert set(Path(tempfile.gettempdir()).glob("deixis-*")) == before
 
 
-def test_status_file_shows_both_phases(chunked_clip: Path, tmp_path: Path) -> None:
+def test_status_file_shows_every_phase(chunked_clip: Path, tmp_path: Path) -> None:
+    """The one slow test that keeps diarization on.
+
+    It costs ~13s of real CoreML model load, and it buys the only in-suite
+    evidence that all four phases reach a watcher in order on a real .mov.
+    "diarizing" is asserted rather than a speaker count: the state is emitted
+    before the pass runs, so this stays green on a machine without the extra --
+    which is the point, because it is the phase wiring under test, not senko.
+    """
     seen: list[str] = []
     status = tmp_path / "status.json"
     transcribe(
@@ -117,4 +130,6 @@ def test_status_file_shows_both_phases(chunked_clip: Path, tmp_path: Path) -> No
     )
     assert "extracting" in seen
     assert "running" in seen
+    assert "diarizing" in seen
+    assert seen.index("running") < seen.index("diarizing")
     assert json.loads(status.read_text())["state"] == "done"

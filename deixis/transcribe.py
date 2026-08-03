@@ -105,6 +105,94 @@ def _make_chunk_callback(
     return chunk_callback
 
 
+def _with_speaker(sentence: dict, speaker: int) -> dict:
+    """The same sentence with `speaker` inserted directly after `end`.
+
+    Rebuilt rather than assigned into so the label reads before the token list
+    instead of after it -- a sentence's tokens are most of its bytes, and a
+    human scrolling the file should not have to cross them to find who spoke.
+    Anchored on an existing key rather than on a literal key list, so adding a
+    field to the payload above does not silently drop it here.
+    """
+    out: dict = {}
+    for key, value in sentence.items():
+        out[key] = value
+        if key == "end":
+            out["speaker"] = speaker
+    return out
+
+
+def _with_speakers(
+    payload: dict, sentences: list[dict], labels: list[str], provenance: str
+) -> dict:
+    """The same payload, labelled, with the new keys up near the top.
+
+    `speakers` is the legend for every `speaker` index below it and is read
+    once; behind half a megabyte of sentences it would be the last thing an
+    agent reaching the end of the file finds it needed at the start.
+    """
+    out: dict = {}
+    for key, value in payload.items():
+        out[key] = sentences if key == "sentences" else value
+        if key == "model":
+            out["speakers"] = labels
+            # Its ABSENCE is load-bearing: without it "diarization was not run"
+            # and "diarization ran and found one speaker" are the same document.
+            out["diarization"] = provenance
+    return out
+
+
+def _label_speakers(
+    payload: dict,
+    audio: Path,
+    out: Path,
+    total_s: float,
+    report: Callable[[Progress, str], None],
+    require: bool,
+) -> dict:
+    """Diarize `audio` and rewrite `out` labelled, or leave both untouched.
+
+    Called only after the unlabelled transcript is already on disk, which is
+    what makes optionality structural rather than a matter of catching the
+    right exceptions: every way this can fail leaves the correct, complete,
+    unlabelled output exactly where it was.
+
+    Returns the payload to hand back to the caller -- the labelled one when the
+    pass ran, the one passed in when it did not.
+    """
+    from deixis import diarize as diarize_mod
+    from deixis.merge import label_sentences
+
+    started = time.monotonic()
+    # Two events, not a bar. senko exposes no per-chunk callback, so there is
+    # no intermediate progress to report and inventing some would be a lie.
+    report(Progress(0.0, total_s, 0.0), "diarizing")
+    try:
+        result = diarize_mod.speaker_turns(audio)
+    except diarize_mod.DiarizationUnavailable as exc:
+        if require:
+            raise
+        # Named on stderr rather than swallowed: the transcript is correct, but
+        # a user who asked for speaker labels and silently got none would have
+        # no way to tell that from a recording with one speaker.
+        print(f"diarization skipped: {exc}", file=sys.stderr)
+        return payload
+
+    speakers = label_sentences(payload["sentences"], result.turns)
+    labelled = _with_speakers(
+        payload,
+        [_with_speaker(s, k) for s, k in zip(payload["sentences"], speakers)],
+        result.labels,
+        result.provenance,
+    )
+    # The second atomic write to the same path. The extra ~500KB buys there
+    # being no instant in which `out` is absent or partial; holding the payload
+    # to write once would put the whole ASR run behind this optional pass.
+    atomic_write_text(out, json.dumps(labelled))
+    report(Progress(total_s, total_s, time.monotonic() - started), "diarizing")
+    return labelled
+
+
 def transcribe(
     media: Path,
     out: Path,
@@ -112,6 +200,8 @@ def transcribe(
     status_path: Path | None = None,
     on_progress: Callable[[Progress, str], None] | None = None,
     resume: bool = True,
+    diarize: bool = True,
+    require_diarize: bool = False,
 ) -> dict:
     """Transcribe `media`, writing a sentence+token timestamped JSON to `out`.
 
@@ -125,6 +215,12 @@ def transcribe(
     An interrupted run leaves a checkpoint beside `out`, and the next run
     continues from its last completed chunk. `resume=False` ignores and removes
     any checkpoint and transcribes the whole file.
+
+    Sentences are then labelled with who spoke them, which is a pass over an
+    output that is already correct without it: any failure degrades to the
+    unlabelled transcript and returns normally. `diarize=False` skips it and
+    emits the unlabelled schema exactly; `require_diarize=True` makes a failure
+    fatal for a caller who would rather have nothing than an unlabelled index.
     """
     from parakeet_mlx import from_pretrained
     from parakeet_mlx.audio import load_audio
@@ -262,6 +358,20 @@ def transcribe(
         # costs one redundant resume rather than the whole run.
         ckpt_path.unlink(missing_ok=True)
 
+        # After the unlink, not before: the checkpoint protects ASR work, that
+        # work is banked the moment the transcript is on disk, and a
+        # diarization crash holding a stale checkpoint open would make the next
+        # run resume audio it has already transcribed.
+        #
+        # `audio` and not `media`: media.py has already produced the 16 kHz
+        # mono pcm_s16le wav senko wants, and it only exists until this `with`
+        # block ends. A .mov handed straight to the diarizer is a second
+        # normalization path to keep correct.
+        if diarize:
+            payload = _label_speakers(
+                payload, audio, out, stream.duration_s, report, require_diarize
+            )
+
         elapsed = time.monotonic() - started
         total = result.sentences[-1].end if result.sentences else 0.0
         report(Progress(total, total, elapsed, resumed_from_s), "done")
@@ -280,6 +390,16 @@ def main(argv: list[str] | None = None) -> int:
         "--no-resume",
         action="store_true",
         help="ignore any checkpoint from an interrupted run and start over",
+    )
+    ap.add_argument(
+        "--no-diarize",
+        action="store_true",
+        help="skip speaker labelling; emit the transcript alone",
+    )
+    ap.add_argument(
+        "--require-diarize",
+        action="store_true",
+        help="fail the run if speaker labelling cannot run, instead of degrading",
     )
     args = ap.parse_args(argv)
 
@@ -308,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
             status_path=args.status,
             on_progress=show,
             resume=not args.no_resume,
+            diarize=not args.no_diarize,
+            require_diarize=args.require_diarize,
         )
     except Exception as exc:
         # Record and re-raise: a detached watcher polling the heartbeat has no
@@ -333,8 +455,12 @@ def main(argv: list[str] | None = None) -> int:
     # speed, correctly, because Progress.resumed_from_s lets it subtract the
     # banked audio; the summary has no such number to hand. Two plain durations
     # the reader can divide themselves beat one confident wrong figure.
+    # A count, not a rate. The only number the summary can add here without
+    # reintroducing the realtime multiple removed above, and it is guarded on
+    # the key because a degraded run has no speakers to count.
+    speakers = f" · {len(result['speakers'])} speakers" if "speakers" in result else ""
     print(
-        f"done: {_clock(total)} audio in {_clock(elapsed)} -> {args.out}",
+        f"done: {_clock(total)} audio in {_clock(elapsed)}{speakers} -> {args.out}",
         file=sys.stderr,
     )
     return 0
