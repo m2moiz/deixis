@@ -91,6 +91,64 @@ Qwen2.5-VL leads DocVQA (96.4% at 72B, near the ~98.1% human ceiling) and scores
 chart/table detail is Qwen3-VL-30B-A3B-Thinking at ~18-20GB, which needs a 64GB
 machine.
 
+**Speaker labels: senko, optional, and wrong in ways worth naming.**
+Diarization is an extra — `uv sync --extra diarize` — not a dependency. It pulls
+29 packages (scikit-learn, scipy, umap-learn, hdbscan, coremltools, numba) for
+one optional pass, it is a source build, and on Darwin it forces
+`device='coreml'` unconditionally, so a core dependency here would be a core
+dependency that breaks `uv sync` for anyone not on Apple Silicon. Without it the
+transcript is written exactly as before and the run exits 0.
+
+senko over pyannote for one measured reason: it imports no torch, and on the
+74-minute reference call it diarized in **8.0s — 554x realtime**, plus **12.4s**
+of warm model load. Against 149s of ASR that is **+14%**. The first run on a
+machine pays **~51.5s** instead of 12.4s while CoreML compiles and persists its
+embeddings cache; that is a one-off, and it is not the steady state a first-time
+user should be shown as one.
+
+Labels land on the *sentence*, as an integer index into a top-level `speakers`
+array. Measured on the real transcript, that costs **1.7%** of file size; the
+string `"SPEAKER_01"` on every sentence costs 3.3% to carry no extra
+information, and a per-token label costs **20.4%** — 95 KB, ~24,000 tokens of
+agent context — and was rejected. An integer also *looks* like the arbitrary
+cluster id it is, where a name invites a reader to treat it as an identity. A
+`diarization` provenance string sits beside `speakers`, and is **absent** when
+the pass did not run: without it, "diarization was not run" and "diarization ran
+and found one speaker" are the same document.
+
+Sentences are labelled by counting **token votes** against turns, not by
+intersecting the sentence's span with them. A span includes its internal
+silences, so a speaker talking during a pause mid-sentence can hold more of the
+span than the speaker who said the words. On the reference call the two
+approaches disagree on 6 of 664 sentences — this is a small correctness win, not
+a large one, and it is kept because interval overlap fails worse the more
+interleaved the conversation gets.
+
+What it gets wrong, all of it measured on a real 74-minute two-person call:
+
+- **Over-clustering.** senko found **three** speakers for two people. The
+  phantom holds 58.5s across 13 turns and **wins zero of the 664 sentences**
+  under the token vote — the sentence-level schema absorbs it, where a
+  per-token one would have put a nonexistent third participant in front of the
+  agent 13 times. senko exposes **no `num_speakers` knob**; clustering is
+  unsupervised and the only parameter is `mer_cos`. A file where a phantom
+  cluster *does* win sentences would produce a transcript with a speaker who
+  does not exist.
+- **Interruptions are misattributed.** parakeet segments on punctuation and
+  pauses, not on voice, so one sentence can span a speaker change — 69 of 664,
+  **10.4%**, do. The vote hands the whole sentence to whoever contributed more
+  tokens, so a short interjection vanishes into the surrounding speaker and a
+  long one takes their words with it. Splitting a sentence at a speaker change
+  is the honest fix and is not in this tool.
+- **Back-channels are invisible.** No turn on the reference file is shorter than
+  1.01s, and senko's merged segments are non-overlapping, so the format cannot
+  represent a "yeah" spoken over someone. It is attributed to whoever holds the
+  floor. For an index whose job is to find *"see this column here"* — a
+  floor-holder utterance — that is the right failure, but it is a failure.
+- **Numbering is arbitrary and per-file.** `SPEAKER_01` in one recording has
+  nothing to do with `SPEAKER_01` in another. It is a clustering artifact, not a
+  speaking order and not a person.
+
 ## Open
 
 - **Frame dedup has no validated method for screen content.** Searching
