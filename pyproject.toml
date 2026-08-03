@@ -8,3 +8,16 @@ dependencies = [
     "numba>=0.61",
     "parakeet-mlx>=0.5.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+# pythonpath is load-bearing, not cosmetic: there is no [build-system], so uv
+# treats deixis as a virtual project and never installs the package into .venv.
+# Without this, `import deixis` fails from a test file.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
