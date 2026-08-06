@@ -27,6 +27,24 @@ SOURCE_AUDIO = REPO / "scratch" / "meeting.wav"
 CLIP_SECONDS = 360
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Give every slow-marked test the long timeout ceiling.
+
+    One chokepoint, so the ceiling cannot drift away from the mark. The global
+    --timeout=120 is right for the fast lane and wrong here: a first run
+    downloads ~2.4 GB of weights and the diarizer test runs a 6-minute clip.
+
+    Done as a collection hook rather than a composed `slow = mark.slow(...)`
+    alias because the six mark sites are a mix of module-level `pytestmark`
+    (one of which also carries a skipif guard) and per-test decorators. Pairing
+    the two marks by hand at each site is how they get out of sync, and it
+    would need every test module to import a name from conftest.
+    """
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(pytest.mark.timeout(1800))
+
+
 @dataclass
 class FakeToken:
     """A token spec, converted to a real AlignedToken on every generate() call.
