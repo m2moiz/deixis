@@ -28,11 +28,24 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.
 from deixis import media as media_mod
 from deixis.atomic import atomic_write_text
+
+if TYPE_CHECKING:
+    from parakeet_mlx import BaseParakeet
+    from parakeet_mlx.alignment import AlignedToken
+
+# The transcript is JSON, so its two nested shapes are plain dicts rather than
+# dataclasses -- json.dumps is the only consumer here, and a schema class would
+# have to be flattened right back. Naming them keeps the signatures below
+# honest about which dict is which without pretending to more structure than
+# the on-disk document has.
+type Sentence = dict[str, Any]
+type Payload = dict[str, Any]
 
 # Module logger, not print: transcribe() is the import surface the frame-
 # retrieval half will call, and a library that writes to stderr unasked is a
@@ -127,7 +140,7 @@ def _make_chunk_callback(
     return chunk_callback
 
 
-def _with_speaker(sentence: dict, speaker: int) -> dict:
+def _with_speaker(sentence: Sentence, speaker: int) -> Sentence:
     """The same sentence with `speaker` inserted directly after `end`.
 
     Rebuilt rather than assigned into so the label reads before the token list
@@ -136,7 +149,7 @@ def _with_speaker(sentence: dict, speaker: int) -> dict:
     Anchored on an existing key rather than on a literal key list, so adding a
     field to the payload above does not silently drop it here.
     """
-    out: dict = {}
+    out: Sentence = {}
     for key, value in sentence.items():
         out[key] = value
         if key == "end":
@@ -145,15 +158,15 @@ def _with_speaker(sentence: dict, speaker: int) -> dict:
 
 
 def _with_speakers(
-    payload: dict, sentences: list[dict], labels: list[str], provenance: str
-) -> dict:
+    payload: Payload, sentences: list[Sentence], labels: list[str], provenance: str
+) -> Payload:
     """The same payload, labelled, with the new keys up near the top.
 
     `speakers` is the legend for every `speaker` index below it and is read
     once; behind half a megabyte of sentences it would be the last thing an
     agent reaching the end of the file finds it needed at the start.
     """
-    out: dict = {}
+    out: Payload = {}
     for key, value in payload.items():
         out[key] = sentences if key == "sentences" else value
         if key == "model":
@@ -165,13 +178,13 @@ def _with_speakers(
 
 
 def _label_speakers(
-    payload: dict,
+    payload: Payload,
     audio: Path,
     out: Path,
     total_s: float,
     report: Callable[[Progress, str], None],
     require: bool,
-) -> dict:
+) -> Payload:
     """Diarize `audio` and rewrite `out` labelled, or leave both untouched.
 
     Called only after the unlabelled transcript is already on disk, which is
@@ -226,7 +239,7 @@ def transcribe(
     resume: bool = True,
     diarize: bool = True,
     require_diarize: bool = False,
-) -> dict:
+) -> Payload:
     """Transcribe `media`, writing a sentence+token timestamped JSON to `out`.
 
     `media` is any file ffmpeg can open -- the .mov straight off the screen
@@ -246,8 +259,24 @@ def transcribe(
     emits the unlabelled schema exactly; `require_diarize=True` makes a failure
     fatal for a caller who would rather have nothing than an unlabelled index.
     """
-    from parakeet_mlx import from_pretrained
-    from parakeet_mlx.audio import load_audio
+    # Both upstream signatures default a `dtype` to an mx scalar, and mx ships
+    # no stubs, so each callable resolves partially unknown at the import
+    # itself -- there is no expression to annotate, which is why these two
+    # lines are suppressed rather than fixed. The casts below restate the
+    # two-argument form deixis actually calls, which stops the Unknown at this
+    # boundary instead of letting it spread through every value derived from
+    # the model and the audio. The audio itself stays Any: it is an mx.array.
+    from parakeet_mlx import (
+        # Suppression is unavoidable here -- parakeet-mlx is untyped where it
+        # touches mx, and an import binding has no expression to annotate.
+        from_pretrained as _from_pretrained,  # pyright: ignore[reportUnknownVariableType]
+    )
+    from parakeet_mlx.audio import (
+        load_audio as _load_audio,  # pyright: ignore[reportUnknownVariableType]
+    )
+
+    from_pretrained = cast("Callable[[str], BaseParakeet]", _from_pretrained)
+    load_audio = cast("Callable[[Path, int], Any]", _load_audio)
 
     from deixis.checkpoint import (
         checkpoint_path_for,
@@ -310,7 +339,7 @@ def transcribe(
         # a checkpoint keyed to it could never match a second time.
         fp = fingerprint(media, len(audio_data), model_id, CHUNK_S, OVERLAP_S)
 
-        start_tokens: list = []
+        start_tokens: list[AlignedToken] = []
         skip_before = 0
         if resume:
             found = read_checkpoint(ckpt_path, fp)
@@ -336,7 +365,9 @@ def transcribe(
             resumed_from_s,
         )
 
-        def on_chunk(done_through: int, next_start: int, total: int, merged: list) -> None:
+        def on_chunk(
+            done_through: int, next_start: int, total: int, merged: list[AlignedToken]
+        ) -> None:
             # Checkpointed with next_start, never done_through: chunks overlap,
             # so a chunk's end is past the following chunk's start and resuming
             # from it would skip a whole chunk of audio.
@@ -356,7 +387,7 @@ def transcribe(
             on_chunk=on_chunk,
         )
 
-        payload = {
+        payload: Payload = {
             # The source the user handed us, never the temp wav -- this JSON is
             # an index into that file and has to keep pointing at it.
             "audio": str(media),

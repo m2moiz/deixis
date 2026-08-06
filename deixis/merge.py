@@ -34,7 +34,7 @@ __all__ = [
 import bisect
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 
 class Turn(NamedTuple):
@@ -109,7 +109,7 @@ def _distance(turn: Turn, t: float) -> float:
     return min(abs(t - turn.start), abs(t - turn.end))
 
 
-def label_sentence(sentence: Mapping, index: TurnIndex) -> int:
+def label_sentence(sentence: Mapping[str, Any], index: TurnIndex) -> int:
     """The speaker index for one sentence, by majority of its tokens.
 
     `sentence` is the dict transcribe() writes: a "start" and a "tokens" list of
@@ -145,7 +145,9 @@ def label_sentence(sentence: Mapping, index: TurnIndex) -> int:
     return min(tied, key=lambda speaker: first_vote[speaker])
 
 
-def label_sentences(sentences: Sequence[Mapping], turns: Sequence[Turn]) -> list[int]:
+def label_sentences(
+    sentences: Sequence[Mapping[str, Any]], turns: Sequence[Turn]
+) -> list[int]:
     """A speaker index per sentence, in the order the sentences came in."""
     index = TurnIndex(turns)
     return [label_sentence(s, index) for s in sentences]

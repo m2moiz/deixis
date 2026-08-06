@@ -27,10 +27,10 @@ __all__ = [
     "speaker_turns",
 ]
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from deixis.merge import Turn
 
@@ -91,7 +91,12 @@ def speaker_turns(wav: Path) -> Diarization:
     # `result` itself is None when senko's VAD found no speech anywhere
     # (diarizer.py:359) -- a silent recording, which a screen capture with a
     # dead mic really is. Same answer as an empty segment list.
-    segments = result["merged_segments"] if result else []
+    #
+    # senko ships no type information, so `result` arrives as Any and the shape
+    # is pinned here, once, at the boundary: a sequence of segment mappings.
+    # Mapping[str, Any] rather than a TypedDict because the values are whatever
+    # senko put there and _to_turns coerces them itself.
+    segments: Sequence[Mapping[str, Any]] = result["merged_segments"] if result else []
     if not segments:
         raise DiarizationUnavailable(
             f"senko found no speaker turns in {wav}, so there is nothing to "
@@ -124,7 +129,7 @@ def _provenance() -> str:
     return f"senko {version('senko')}"
 
 
-def _to_turns(segments: Sequence[dict]) -> tuple[list[Turn], list[str]]:
+def _to_turns(segments: Sequence[Mapping[str, Any]]) -> tuple[list[Turn], list[str]]:
     """Senko's named segments, as sorted turns over integer speaker indices.
 
     Labels are sorted so the index a sentence carries is stable across runs of

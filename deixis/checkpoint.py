@@ -21,6 +21,7 @@ import dataclasses
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from parakeet_mlx.alignment import AlignedToken
 
@@ -97,7 +98,7 @@ def checkpoint_path_for(out: Path) -> Path:
     return out.with_name(out.name + ".ckpt")
 
 
-def _to_json(token: AlignedToken) -> dict:
+def _to_json(token: AlignedToken) -> dict[str, Any]:
     # `end` is omitted deliberately: AlignedToken.__post_init__ recomputes it
     # from start + duration, so persisting it would only add a way to disagree.
     return {
@@ -109,7 +110,7 @@ def _to_json(token: AlignedToken) -> dict:
     }
 
 
-def _from_json(d: dict) -> AlignedToken:
+def _from_json(d: dict[str, Any]) -> AlignedToken:
     return AlignedToken(
         id=d["id"],
         text=d["text"],
@@ -145,17 +146,24 @@ def read_checkpoint(path: Path, fp: Fingerprint) -> tuple[int, list[AlignedToken
     means the stored tokens describe something else; the caller starts over.
     """
     try:
-        payload = json.loads(path.read_text())
+        raw: object = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
 
-    if not isinstance(payload, dict):
+    if not isinstance(raw, dict):
         return None
+    # The guard above proves it is a dict but says nothing about key/value
+    # types; JSON object keys are always str, and the values stay Any because
+    # the shape check happens below, in the try.
+    payload = cast("dict[str, Any]", raw)
+
     if payload.get("fingerprint") != dataclasses.asdict(fp):
         return None
 
     try:
-        return payload["next_start"], [_from_json(d) for d in payload["tokens"]]
+        next_start: int = payload["next_start"]
+        raw_tokens: list[dict[str, Any]] = payload["tokens"]
+        return next_start, [_from_json(d) for d in raw_tokens]
     except (KeyError, TypeError):
         # Well-formed JSON with the right fingerprint but the wrong shape means
         # something wrote this file that was not us. Do not guess.

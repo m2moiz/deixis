@@ -22,7 +22,7 @@ __all__ = [
 ]
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from parakeet_mlx import DecodingConfig
 from parakeet_mlx.alignment import (
@@ -33,10 +33,32 @@ from parakeet_mlx.alignment import (
     sentences_to_result,
     tokens_to_sentences,
 )
-from parakeet_mlx.audio import get_logmel
+from parakeet_mlx.audio import (
+    get_logmel as _get_logmel_untyped,  # pyright: ignore[reportUnknownVariableType]  # mlx's core is a compiled extension with no stubs, so mx.array -- and this signature with it -- is Unknown at the import itself
+)
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
+    from parakeet_mlx.audio import PreprocessArgs
+
+# The log mel is an mx.array, which has no stub, so it is Any to a type checker
+# no matter what. Naming that boundary once here keeps the Unknown from
+# spreading into every expression the chunk loop derives from it.
+get_logmel = cast("Callable[[Any, PreprocessArgs], Any]", _get_logmel_untyped)
+
+
+class _Generates(Protocol):
+    """The one method this module calls on a model.
+
+    BaseParakeet.generate is annotated upstream, but its `mel: mx.array`
+    parameter resolves to Unknown for the reason above, which makes every call
+    through it partially unknown. Restating the signature with the mel as Any
+    keeps the useful half -- the list[AlignedResult] return -- typed.
+    """
+
+    def generate(
+        self, mel: Any, *, decoding_config: DecodingConfig = ...
+    ) -> list[AlignedResult]: ...
 
 
 def chunk_starts(total_samples: int, chunk_samples: int, overlap_samples: int) -> list[int]:
@@ -92,7 +114,7 @@ def transcribe_chunked(
             continue  # already merged into start_tokens by an earlier run
 
         chunk_mel = get_logmel(audio_data[start:end], model.preprocessor_config)
-        chunk_result = model.generate(chunk_mel, decoding_config=cfg)[0]
+        chunk_result = cast(_Generates, model).generate(chunk_mel, decoding_config=cfg)[0]
 
         # generate() decodes each chunk from a fresh decoder state -- it passes
         # neither last_token nor hidden_state -- so a chunk's tokens depend on
@@ -105,13 +127,23 @@ def transcribe_chunked(
                 token.end = token.start + token.duration
 
         if all_tokens:
+            # Both merges are unannotated upstream and build their result in a
+            # bare list, so their inferred return carries an Unknown element.
+            # The elements are AlignedToken by construction -- every branch
+            # returns slices of the two lists passed in.
             try:
-                all_tokens = merge_longest_contiguous(
-                    all_tokens, chunk_result.tokens, overlap_duration=overlap_s
+                all_tokens = cast(
+                    "list[AlignedToken]",
+                    merge_longest_contiguous(
+                        all_tokens, chunk_result.tokens, overlap_duration=overlap_s
+                    ),
                 )
             except RuntimeError:
-                all_tokens = merge_longest_common_subsequence(
-                    all_tokens, chunk_result.tokens, overlap_duration=overlap_s
+                all_tokens = cast(
+                    "list[AlignedToken]",
+                    merge_longest_common_subsequence(
+                        all_tokens, chunk_result.tokens, overlap_duration=overlap_s
+                    ),
                 )
         else:
             all_tokens = chunk_result.tokens

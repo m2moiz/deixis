@@ -30,6 +30,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 class MediaError(RuntimeError):
@@ -97,15 +98,18 @@ def probe(media: Path) -> AudioStream:
             f"(`ffprobe {media}` shows the same detail)."
         )
 
-    info = json.loads(proc.stdout)
-    streams = info.get("streams") or []
+    # Annotated at the boundary: json.loads returns Any, and every downstream
+    # read inherits that Unknown-ness under strict. One name typed here is
+    # cheaper than a cast at each of the five field reads below.
+    info: dict[str, Any] = json.loads(proc.stdout)
+    streams: list[dict[str, Any]] = info.get("streams") or []
     if not streams:
         raise NoAudioStream(
             f"{media} has no audio stream, so there is nothing to transcribe. "
             f"If this is a silent screen capture, re-record with audio enabled."
         )
 
-    stream = streams[0]
+    stream: dict[str, Any] = streams[0]
     # This field describes the audio stream, so the stream's own duration wins.
     # The container's is the max across every stream, and a recorder that keeps
     # rolling video after the mic stops gives a container longer than its audio
@@ -113,7 +117,8 @@ def probe(media: Path) -> AudioStream:
     # the container only when the stream carries no duration of its own, as some
     # do not. Zero means ffprobe genuinely does not know; progress then reports
     # elapsed only, which Progress already handles.
-    duration = stream.get("duration") or info.get("format", {}).get("duration") or 0.0
+    fmt: dict[str, Any] = info.get("format", {})
+    duration: str | float = stream.get("duration") or fmt.get("duration") or 0.0
     return AudioStream(
         codec_name=stream["codec_name"],
         sample_rate=int(stream["sample_rate"]),
