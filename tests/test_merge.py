@@ -9,13 +9,14 @@ of CoreML compilation to test.
 from __future__ import annotations
 
 import bisect
+from typing import Any
 
 import pytest
 
 from deixis.merge import Turn, TurnIndex, label_sentence, label_sentences
 
 
-def sentence(*times: float, start: float | None = None) -> dict:
+def sentence(*times: float, start: float | None = None) -> dict[str, Any]:
     """A sentence carrying only what the merge reads: a start and token times."""
     return {
         "start": times[0] if start is None else start,
@@ -126,8 +127,11 @@ def test_turns_are_indexed_not_scanned() -> None:
     # The gaps are real, so this is not comparing two constant Nones.
     assert any(naive(t) is None for t in times)
     assert any(naive(t) is not None for t in times)
-    assert index._starts == sorted(index._starts)
-    assert bisect.bisect_right(index._starts, 0.0) == 1
+    # ignore reportPrivateUsage twice: the sorted bisect array IS the invariant
+    # under test here, and exposing it publicly just to satisfy the checker
+    # would widen the API for a test's convenience.
+    assert index._starts == sorted(index._starts)  # pyright: ignore[reportPrivateUsage]
+    assert bisect.bisect_right(index._starts, 0.0) == 1  # pyright: ignore[reportPrivateUsage]
 
 
 # --- Real measured data, from scratch/senko_meeting.json and the transcript ---

@@ -13,12 +13,23 @@ that pinned "a completed run still reports itself" keep their full value, and
 are the reason the division cannot come back unguarded.
 """
 
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from conftest import FakeToken
 
 from deixis.transcribe import main
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from conftest import FakeModel
+
+    from deixis.transcribe import Payload
 
 # main() feeds a path straight through transcribe(), which probes it for real
 # and diarizes for real; these tests are about the summary and about neither of
@@ -32,8 +43,12 @@ def _tokens() -> list[FakeToken]:
 
 
 def test_instantaneous_run_still_prints_a_summary(
-    fake_parakeet, frozen_clock, fake_media, tmp_path, capsys
-):
+    fake_parakeet: Callable[..., FakeModel],
+    frozen_clock: Callable[[list[float]], None],
+    fake_media: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     fake_parakeet(tokens=_tokens())
     frozen_clock([1000.0])  # every reading identical -> elapsed == 0.0
     out = tmp_path / "out.json"
@@ -47,8 +62,12 @@ def test_instantaneous_run_still_prints_a_summary(
 
 
 def test_empty_transcript_still_prints_a_summary(
-    fake_parakeet, frozen_clock, fake_media, tmp_path, capsys
-):
+    fake_parakeet: Callable[..., FakeModel],
+    frozen_clock: Callable[[list[float]], None],
+    fake_media: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """No sentences means total == 0.0; the summary must say so, not crash."""
     fake_parakeet(tokens=[])
     frozen_clock([1000.0, 1002.0])
@@ -62,8 +81,12 @@ def test_empty_transcript_still_prints_a_summary(
 
 
 def test_summary_reports_both_durations_and_no_multiple(
-    fake_parakeet, frozen_clock, fake_media, tmp_path, capsys
-):
+    fake_parakeet: Callable[..., FakeModel],
+    frozen_clock: Callable[[list[float]], None],
+    fake_media: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """12s of audio in 2s of wall clock.
 
     It does NOT say 6.0x. On a resumed run that figure would describe this
@@ -83,8 +106,11 @@ def test_summary_reports_both_durations_and_no_multiple(
 
 
 def test_the_live_bar_still_reports_speed(
-    fake_parakeet, fake_media, tmp_path, capsys
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Dropping the multiple from the summary must not drop it from the bar.
 
     The bar has the number the summary lacks: Progress.resumed_from_s lets it
@@ -99,7 +125,12 @@ def test_the_live_bar_still_reports_speed(
     assert "running" in err
 
 
-def test_no_resume_is_passed_through(fake_parakeet, fake_media, tmp_path, monkeypatch):
+def test_no_resume_is_passed_through(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The flag is only useful if it reaches transcribe()."""
     import deixis.transcribe as transcribe_mod
 
@@ -107,7 +138,9 @@ def test_no_resume_is_passed_through(fake_parakeet, fake_media, tmp_path, monkey
     seen: list[bool] = []
     real = transcribe_mod.transcribe
 
-    def spy(*args, **kwargs):
+    # Any on the passthrough: the spy forwards transcribe()'s whole signature
+    # untouched, so naming its parameters here would only duplicate it.
+    def spy(*args: Any, **kwargs: Any) -> Payload:
         seen.append(kwargs["resume"])
         return real(*args, **kwargs)
 
@@ -119,7 +152,12 @@ def test_no_resume_is_passed_through(fake_parakeet, fake_media, tmp_path, monkey
     assert seen == [False, True]
 
 
-def test_the_diarize_flags_are_passed_through(fake_parakeet, fake_media, tmp_path, monkeypatch):
+def test_the_diarize_flags_are_passed_through(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two booleans, not a tri-state: does it run, and is failure fatal.
 
     A flag argparse accepts and main() then drops is worse than no flag: the
@@ -131,7 +169,7 @@ def test_the_diarize_flags_are_passed_through(fake_parakeet, fake_media, tmp_pat
     seen: list[tuple[bool, bool]] = []
     real = transcribe_mod.transcribe
 
-    def spy(*args, **kwargs):
+    def spy(*args: Any, **kwargs: Any) -> Payload:
         seen.append((kwargs["diarize"], kwargs["require_diarize"]))
         return real(*args, **kwargs)
 
@@ -144,8 +182,12 @@ def test_the_diarize_flags_are_passed_through(fake_parakeet, fake_media, tmp_pat
 
 
 def test_the_summary_counts_speakers_only_when_there_are_some(
-    fake_parakeet, fake_media, tmp_path, capsys, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """The one number the summary can gain without bringing back a rate.
 
     `total / elapsed` is deliberately absent from this line (see the module

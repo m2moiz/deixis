@@ -4,9 +4,13 @@ Every expected string here was produced by running the real function; none was
 computed by hand.
 """
 
+from __future__ import annotations
+
 import pytest
 
-from deixis.transcribe import _clock
+# Reaching for a private name is the point: _clock is internal to transcribe and
+# these tests are its unit tests, so there is no public surface to target.
+from deixis.transcribe import _clock  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.parametrize(
@@ -36,11 +40,11 @@ from deixis.transcribe import _clock
         "real_total",
     ],
 )
-def test_clock_formats(seconds, expected):
+def test_clock_formats(seconds: float | None, expected: str) -> None:
     assert _clock(seconds) == expected
 
 
-def test_clock_distinguishes_zero_from_unknown():
+def test_clock_distinguishes_zero_from_unknown() -> None:
     """A finished-at-zero run and a not-yet-known ETA must not look alike.
 
     `if not seconds` in place of `if seconds is None` would collapse these.

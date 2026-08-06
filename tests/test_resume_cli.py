@@ -12,10 +12,17 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from deixis.checkpoint import checkpoint_path_for
+
+if TYPE_CHECKING:
+    from parakeet_mlx import BaseParakeet
+    from parakeet_mlx.alignment import AlignedResult
+
+    from deixis.transcribe import Progress
 
 pytestmark = pytest.mark.slow
 
@@ -40,7 +47,7 @@ def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Pa
 
     seen = 0
 
-    def die_after_two(p, state) -> None:
+    def die_after_two(p: Progress, state: str) -> None:
         nonlocal seen
         if state != "running":
             return
@@ -108,7 +115,11 @@ def test_no_resume_ignores_an_existing_checkpoint(
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
 def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
-    chunked_audio_path: Path, tmp_path: Path, monkeypatch, capsys, caplog
+    chunked_audio_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The failure a wav-only suite cannot see.
 
@@ -136,7 +147,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
 
     seen = 0
 
-    def die_after_two(p, state) -> None:
+    def die_after_two(p: Progress, state: str) -> None:
         nonlocal seen
         if state != "running":
             return
@@ -163,8 +174,12 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
 
     original = chunking.transcribe_chunked
 
-    def spy(model, audio_data, **kwargs):
-        resumed_from.append(kwargs.get("skip_before", 0))
+    # audio_data and the kwargs are Any at the source too: the decoded samples
+    # are an mlx array, a compiled extension with no stubs, so transcribe_chunked
+    # itself types that parameter Any.
+    def spy(model: BaseParakeet, audio_data: Any, **kwargs: Any) -> AlignedResult:
+        skip_before: int = kwargs.get("skip_before", 0)
+        resumed_from.append(skip_before)
         return original(model, audio_data, **kwargs)
 
     monkeypatch.setattr(chunking, "transcribe_chunked", spy)

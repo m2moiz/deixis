@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
 
 from deixis.chunking import chunk_starts, transcribe_chunked
 from deixis.transcribe import CHUNK_S, OVERLAP_S
+
+if TYPE_CHECKING:
+    from parakeet_mlx import BaseParakeet
+    from parakeet_mlx.alignment import AlignedResult, AlignedToken
 
 
 def test_boundaries_match_the_librarys_stride() -> None:
@@ -58,23 +63,45 @@ def test_boundaries_are_independent_of_where_a_run_began() -> None:
 
 # --- Model-backed. These are the measurements the whole feature rests on. -----
 
+
+class _Transcribes(Protocol):
+    """The one method these tests call on the real model.
+
+    BaseParakeet.transcribe is annotated upstream, but its `dtype: mx.Dtype =
+    mx.bfloat16` default resolves to Unknown -- mlx's core is a compiled
+    extension with no stubs -- which makes the whole member partially unknown.
+    Restating only the arguments used here keeps the AlignedResult return typed.
+    Mirrors deixis.chunking._Generates, which exists for the same reason.
+    """
+
+    def transcribe(
+        self, path: Path | str, *, chunk_duration: float, overlap_duration: float
+    ) -> AlignedResult: ...
+
+
 @pytest.fixture(scope="module")
-def model(model_id: str):
-    from parakeet_mlx import from_pretrained
+def model(model_id: str) -> BaseParakeet:
+    from parakeet_mlx import (
+        from_pretrained,  # pyright: ignore[reportUnknownVariableType]  # its mx.bfloat16 dtype default is Unknown -- mlx's core is a compiled extension with no stubs -- so the import itself is partially unknown
+    )
 
     return from_pretrained(model_id)
 
 
-def _load(model, path: Path):
-    from parakeet_mlx.audio import load_audio
+# The loaded audio is an mx.array, which has no stub, so Any is the honest
+# annotation here rather than a lossy one.
+def _load(model: BaseParakeet, path: Path) -> Any:
+    from parakeet_mlx.audio import (
+        load_audio,  # pyright: ignore[reportUnknownVariableType]  # same compiled-extension boundary: the mx.array return and mx.bfloat16 default are Unknown
+    )
 
     # No dtype argument, matching BaseParakeet.transcribe, which also takes
     # load_audio's mx.bfloat16 default (parakeet.py:166). Passing a different
     # one here would make the equivalence test compare two different decodes.
-    return load_audio(path, model.preprocessor_config.sample_rate)
+    return cast("Any", load_audio(path, model.preprocessor_config.sample_rate))
 
 
-def _shape(result) -> list[dict]:
+def _shape(result: AlignedResult) -> list[dict[str, Any]]:
     """A comparable rendering: the same fields transcribe() writes to disk."""
     return [
         {
@@ -88,11 +115,13 @@ def _shape(result) -> list[dict]:
 
 
 @pytest.mark.slow
-def test_our_loop_reproduces_the_librarys_transcribe(model, chunked_audio_path) -> None:
+def test_our_loop_reproduces_the_librarys_transcribe(
+    model: BaseParakeet, chunked_audio_path: Path
+) -> None:
     # The guard on the coupling described in chunking.py's docstring. If
     # upstream changes its stride, offsets, or merge order, this fails loudly
     # instead of the transcript quietly changing.
-    theirs = model.transcribe(
+    theirs = cast(_Transcribes, model).transcribe(
         chunked_audio_path, chunk_duration=CHUNK_S, overlap_duration=OVERLAP_S
     )
     ours = transcribe_chunked(
@@ -104,7 +133,9 @@ def test_our_loop_reproduces_the_librarys_transcribe(model, chunked_audio_path) 
 
 
 @pytest.mark.slow
-def test_transcription_is_deterministic_across_runs(model, chunked_audio_path) -> None:
+def test_transcription_is_deterministic_across_runs(
+    model: BaseParakeet, chunked_audio_path: Path
+) -> None:
     # Resume can only be byte-identical if the underlying decode is. Measured
     # here separately so a failure is attributed to MLX/Metal rather than to
     # the resume logic.
@@ -117,18 +148,22 @@ def test_transcription_is_deterministic_across_runs(model, chunked_audio_path) -
 
 
 @pytest.mark.slow
-def test_resuming_mid_file_gives_the_uninterrupted_result(model, chunked_audio_path) -> None:
+def test_resuming_mid_file_gives_the_uninterrupted_result(
+    model: BaseParakeet, chunked_audio_path: Path
+) -> None:
     audio = _load(model, chunked_audio_path)
     uninterrupted = transcribe_chunked(model, audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
 
     class Interrupt(Exception):
         pass
 
-    banked: list = []
+    banked: list[AlignedToken] = []
     chunks_seen = 0
     next_start = 0
 
-    def stop_after_two(done_through, following, total, merged):
+    def stop_after_two(
+        done_through: int, following: int, total: int, merged: list[AlignedToken]
+    ) -> None:
         nonlocal chunks_seen, banked, next_start
         chunks_seen += 1
         banked = list(merged)

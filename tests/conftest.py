@@ -7,14 +7,25 @@ source module, parakeet_mlx.from_pretrained, which the function-local import
 re-reads on every call.
 """
 
+from __future__ import annotations
+
 import contextlib
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+if TYPE_CHECKING:
+    from parakeet_mlx import DecodingConfig
+    from parakeet_mlx.alignment import AlignedResult
+
+    from deixis.media import AudioStream
+    from deixis.merge import Turn
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCE_AUDIO = REPO / "scratch" / "meeting.wav"
@@ -88,9 +99,21 @@ class FakeModel:
         )
         self.tokens = tokens if tokens is not None else []
         self.total_samples = int(audio_s * sample_rate)
-        self.mels: list = []
+        # Whatever deixis.chunking.get_logmel was stubbed to return -- the
+        # tests assert on the SLICES handed to generate(), never on their
+        # contents, so the element type is deliberately open.
+        self.mels: list[Any] = []
 
-    def generate(self, mel, *, decoding_config=None):
+    def generate(
+        self, mel: Any, *, decoding_config: DecodingConfig | None = None
+    ) -> list[AlignedResult]:
+        """Decode `self.tokens` as one chunk, ignoring the mel entirely.
+
+        Signature-compatible with deixis.chunking._Generates, which is the
+        Protocol naming the only method deixis calls on a model. `mel` is Any
+        for the same reason it is there: mlx's array type is a compiled
+        extension with no stubs.
+        """
         from parakeet_mlx.alignment import (
             AlignedToken,
             SentenceConfig,
@@ -103,12 +126,12 @@ class FakeModel:
             AlignedToken(id=i, text=t.text, start=t.start, duration=t.end - t.start)
             for i, t in enumerate(self.tokens)
         ]
-        cfg = (decoding_config.sentence if decoding_config else None) or SentenceConfig()
+        cfg: Any = (decoding_config.sentence if decoding_config else None) or SentenceConfig()
         return [sentences_to_result(tokens_to_sentences(decoded, cfg))]
 
 
 @pytest.fixture
-def fake_parakeet(monkeypatch):
+def fake_parakeet(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeModel]:
     """Install a FakeModel in place of the real weights.
 
     Also stubs the two library functions the fake model cannot stand in for:
@@ -121,14 +144,23 @@ def fake_parakeet(monkeypatch):
         model = fake_parakeet(sample_rate=16_000, tokens=[...])
     """
 
-    def install(**kwargs) -> FakeModel:
+    def install(**kwargs: Any) -> FakeModel:
         model = FakeModel(**kwargs)
-        monkeypatch.setattr("parakeet_mlx.from_pretrained", lambda model_id: model)
-        monkeypatch.setattr(
-            "parakeet_mlx.audio.load_audio",
-            lambda path, rate, *a, **k: range(model.total_samples),
-        )
-        monkeypatch.setattr("deixis.chunking.get_logmel", lambda audio, cfg: audio)
+
+        # def, not lambda: an annotated lambda is not expressible, and under
+        # strict every unannotated parameter here is an error apiece.
+        def from_pretrained(model_id: str) -> FakeModel:
+            return model
+
+        def load_audio(path: Path, rate: int, *a: Any, **k: Any) -> range:
+            return range(model.total_samples)
+
+        def get_logmel(audio: Any, cfg: Any) -> Any:
+            return audio
+
+        monkeypatch.setattr("parakeet_mlx.from_pretrained", from_pretrained)
+        monkeypatch.setattr("parakeet_mlx.audio.load_audio", load_audio)
+        monkeypatch.setattr("deixis.chunking.get_logmel", get_logmel)
         return model
 
     return install
@@ -148,7 +180,7 @@ def fake_media(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def frozen_clock(monkeypatch):
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[float]], None]:
     """Pin time.monotonic so elapsed_s is exactly reproducible.
 
     Deliberately forgiving past the end of `ticks` (it keeps returning the last
@@ -175,8 +207,22 @@ def frozen_clock(monkeypatch):
     return install
 
 
+def _probe(path: Path) -> AudioStream:
+    """Stand-in for media.probe: always an already-conforming 16k mono wav."""
+    from deixis.media import AudioStream
+
+    return AudioStream(
+        codec_name="pcm_s16le", sample_rate=16_000, channels=1, duration_s=4427.028
+    )
+
+
+def _needs_conversion(stream: AudioStream, rate: int) -> bool:
+    """Stand-in for media.needs_conversion: the stub wav never needs converting."""
+    return False
+
+
 @pytest.fixture
-def already_extracted_media(monkeypatch):
+def already_extracted_media(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make transcribe() treat any path as an already-conforming wav.
 
     Those tests are about the callback wiring and the emitted index, not about
@@ -194,15 +240,14 @@ def already_extracted_media(monkeypatch):
     monkeypatch.setattr(
         media,
         "probe",
-        lambda path: media.AudioStream(
-            codec_name="pcm_s16le", sample_rate=16_000, channels=1, duration_s=4427.028
-        ),
+        # def, not lambda: strict flags every unannotated lambda parameter.
+        _probe,
     )
-    monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: False)
+    monkeypatch.setattr(media, "needs_conversion", _needs_conversion)
 
 
 @pytest.fixture
-def fake_turns(monkeypatch):
+def fake_turns(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[Path]]:
     """Install a stand-in for the diarization pass.
 
     Loading senko costs ~12s of CoreML model load, so no fast test may reach
@@ -221,7 +266,12 @@ def fake_turns(monkeypatch):
     """
     from deixis.diarize import Diarization
 
-    def install(turns=None, labels=None, raises=None, then=None):
+    def install(
+        turns: list[Turn] | None = None,
+        labels: list[str] | None = None,
+        raises: Exception | None = None,
+        then: Callable[[Path], None] | None = None,
+    ) -> list[Path]:
         calls: list[Path] = []
 
         def speaker_turns(wav: Path) -> Diarization:
@@ -243,7 +293,7 @@ def fake_turns(monkeypatch):
 
 
 @pytest.fixture
-def no_real_diarizer(fake_turns):
+def no_real_diarizer(fake_turns: Callable[..., list[Path]]) -> None:
     """Make diarization fail cheaply, for tests that are about something else.
 
     Diarization is on by default, so every faked run would otherwise reach the

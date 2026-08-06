@@ -28,6 +28,15 @@ def _ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args], check=True)
 
 
+def _which_finds_nothing(_name: str) -> str | None:
+    """Stand-in for shutil.which for the not-on-PATH tests.
+
+    def, not lambda: an annotated lambda is not expressible, and under strict
+    every unannotated lambda parameter is an error apiece.
+    """
+    return None
+
+
 @pytest.fixture(scope="session")
 def video_with_audio(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A 2s stand-in for a screen recording: H.264 video, 48kHz stereo AAC.
@@ -150,7 +159,7 @@ def test_probe_raises_before_shelling_out_for_a_missing_file(tmp_path: Path) -> 
 def test_missing_ffprobe_names_the_binary(
     monkeypatch: pytest.MonkeyPatch, video_with_audio: Path
 ) -> None:
-    monkeypatch.setattr(media.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(media.shutil, "which", _which_finds_nothing)
     with pytest.raises(media.FFmpegNotFound) as exc:
         media.probe(video_with_audio)
     assert "ffprobe is not on PATH" in str(exc.value)
@@ -208,7 +217,7 @@ def test_extract_names_the_file_when_there_is_no_audio(
 def test_missing_ffmpeg_names_the_binary(
     monkeypatch: pytest.MonkeyPatch, video_with_audio: Path, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(media.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(media.shutil, "which", _which_finds_nothing)
     with pytest.raises(media.FFmpegNotFound) as exc:
         media.extract_audio(video_with_audio, tmp_path / "a.wav", 16000)
     assert "ffmpeg is not on PATH" in str(exc.value)

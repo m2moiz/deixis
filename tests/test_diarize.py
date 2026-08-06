@@ -11,21 +11,46 @@ from __future__ import annotations
 
 import itertools
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType
+from typing import Any, Protocol, cast
 
 import pytest
 
 from deixis.diarize import Diarization, DiarizationUnavailable, speaker_turns
 from deixis.merge import Turn
 
+# senko ships no type information, so its result arrives as Any -- deixis.diarize
+# pins the same shape at its own boundary (Sequence[Mapping[str, Any]]). The
+# stand-in mirrors that: the keys are known, the values are whatever senko put
+# there. None is what senko returns when its VAD finds no speech at all.
+SenkoResult = dict[str, list[dict[str, Any]]] | None
+
+# speaker_turns hands senko `str(wav)`, not the Path.
+DiarizeCall = Callable[[str], SenkoResult]
+
+
+class SenkoInstaller(Protocol):
+    """What the `fake_senko` fixture hands a test.
+
+    A Protocol rather than a bare Callable because the fixture also exposes the
+    stand-in AudioFormatError as an attribute, which tests raise.
+    """
+
+    AudioFormatError: type[Exception]
+
+    def __call__(self, diarize: DiarizeCall) -> ModuleType: ...
+
 
 @pytest.fixture(autouse=True)
-def no_real_senko(request):
+def no_real_senko(request: pytest.FixtureRequest) -> Iterator[None]:
     """Fail a fast test that imported the real senko rather than a stand-in."""
     before = {name for name in sys.modules if name.startswith("senko")}
     yield
-    if request.node.get_closest_marker("slow"):
+    # pytest leaves FixtureRequest.node unannotated upstream, so both it and
+    # get_closest_marker arrive Unknown; there is no typed way to ask.
+    if request.node.get_closest_marker("slow"):  # pyright: ignore[reportUnknownMemberType]
         return
     leaked = {name for name in sys.modules if name.startswith("senko")} - before
     # The fake is a bare ModuleType named "senko"; the real package drags in
@@ -36,7 +61,7 @@ def no_real_senko(request):
 
 
 @pytest.fixture
-def fake_senko(monkeypatch):
+def fake_senko(monkeypatch: pytest.MonkeyPatch) -> SenkoInstaller:
     """Install a stand-in `senko` module whose diarize() the test controls.
 
     Usage:
@@ -46,14 +71,14 @@ def fake_senko(monkeypatch):
     class AudioFormatError(Exception):
         pass
 
-    def install(diarize) -> ModuleType:
+    def install(diarize: DiarizeCall) -> ModuleType:
         module = ModuleType("senko")
 
         class Diarizer:
-            def __init__(self, **kwargs) -> None:
+            def __init__(self, **kwargs: object) -> None:
                 module.constructed_with = kwargs  # type: ignore[attr-defined]
 
-            def diarize(self, wav_path):
+            def diarize(self, wav_path: str) -> SenkoResult:
                 return diarize(wav_path)
 
         module.AudioFormatError = AudioFormatError  # type: ignore[attr-defined]
@@ -62,10 +87,15 @@ def fake_senko(monkeypatch):
         return module
 
     install.AudioFormatError = AudioFormatError  # type: ignore[attr-defined]
-    return install
+    # cast, not ignore: `install` really does carry both halves of the Protocol
+    # by the time it is returned, but a function object cannot declare an
+    # attribute for the checker to see.
+    return cast(SenkoInstaller, install)
 
 
-def test_a_missing_senko_becomes_DiarizationUnavailable(monkeypatch) -> None:
+def test_a_missing_senko_becomes_DiarizationUnavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # None in sys.modules is how the import system spells "this module is not
     # available"; `import senko` against it raises ImportError.
     monkeypatch.setitem(sys.modules, "senko", None)
@@ -79,14 +109,14 @@ def test_a_missing_senko_becomes_DiarizationUnavailable(monkeypatch) -> None:
     assert "uv sync --extra diarize" in str(caught.value)
 
 
-def test_empty_turns_become_DiarizationUnavailable(fake_senko) -> None:
+def test_empty_turns_become_DiarizationUnavailable(fake_senko: SenkoInstaller) -> None:
     fake_senko(lambda wav_path: {"merged_segments": []})
 
     with pytest.raises(DiarizationUnavailable):
         speaker_turns(Path("silent.wav"))
 
 
-def test_silence_becomes_DiarizationUnavailable(fake_senko) -> None:
+def test_silence_becomes_DiarizationUnavailable(fake_senko: SenkoInstaller) -> None:
     # senko returns None rather than an empty result when its VAD finds no
     # speech at all. A screen capture with a dead mic is exactly that, and
     # subscripting the None would be an AttributeError in an optional pass.
@@ -96,8 +126,8 @@ def test_silence_becomes_DiarizationUnavailable(fake_senko) -> None:
         speaker_turns(Path("silent.wav"))
 
 
-def test_an_unreadable_file_becomes_DiarizationUnavailable(fake_senko) -> None:
-    def explode(wav_path):
+def test_an_unreadable_file_becomes_DiarizationUnavailable(fake_senko: SenkoInstaller) -> None:
+    def explode(wav_path: str) -> SenkoResult:
         raise fake_senko.AudioFormatError("not a wav")
 
     fake_senko(explode)
@@ -106,8 +136,8 @@ def test_an_unreadable_file_becomes_DiarizationUnavailable(fake_senko) -> None:
         speaker_turns(Path("not-a-wav.mov"))
 
 
-def test_a_failed_model_load_becomes_DiarizationUnavailable(fake_senko) -> None:
-    def explode(wav_path):
+def test_a_failed_model_load_becomes_DiarizationUnavailable(fake_senko: SenkoInstaller) -> None:
+    def explode(wav_path: str) -> SenkoResult:
         raise OSError("could not download the embedding model")
 
     fake_senko(explode)
@@ -116,12 +146,12 @@ def test_a_failed_model_load_becomes_DiarizationUnavailable(fake_senko) -> None:
         speaker_turns(Path("clip.wav"))
 
 
-def test_a_bug_is_not_swallowed(fake_senko) -> None:
+def test_a_bug_is_not_swallowed(fake_senko: SenkoInstaller) -> None:
     # The deliberate narrowness of the boundary. A missing dependency should be
     # quiet; a bug should be loud. If this ever starts raising
     # DiarizationUnavailable, someone has widened a catch to `except Exception`
     # and every future bug in this pass has become invisible.
-    def explode(wav_path):
+    def explode(wav_path: str) -> SenkoResult:
         raise TypeError("unsupported operand")
 
     fake_senko(explode)
@@ -130,7 +160,7 @@ def test_a_bug_is_not_swallowed(fake_senko) -> None:
         speaker_turns(Path("clip.wav"))
 
 
-def test_raw_segments_are_not_used(fake_senko) -> None:
+def test_raw_segments_are_not_used(fake_senko: SenkoInstaller) -> None:
     # senko returns both, and the raw list overlaps and nests. The token vote
     # assumes a partition, so counting against the raw list would credit the
     # same second to two speakers.
@@ -153,7 +183,7 @@ def test_raw_segments_are_not_used(fake_senko) -> None:
     assert result.turns == [Turn(0.0, 57.81, 0), Turn(57.81, 73.80, 1)]
 
 
-def test_labels_map_back_to_senkos_names(fake_senko) -> None:
+def test_labels_map_back_to_senkos_names(fake_senko: SenkoInstaller) -> None:
     fake_senko(
         lambda wav_path: {
             "merged_segments": [
@@ -172,7 +202,7 @@ def test_labels_map_back_to_senkos_names(fake_senko) -> None:
     assert result.provenance.startswith("senko ")
 
 
-def test_the_diarizer_is_asked_to_stay_quiet(fake_senko) -> None:
+def test_the_diarizer_is_asked_to_stay_quiet(fake_senko: SenkoInstaller) -> None:
     # deixis renders its own progress; a second progress tree on stderr would
     # fight the bar.
     module = fake_senko(

@@ -71,7 +71,9 @@ def test_temp_file_is_a_sibling_so_the_rename_stays_on_one_filesystem(
     seen: list[Path] = []
     real_replace = os.replace
 
-    def spy(src, dst):  # type: ignore[no-untyped-def]
+    # Path, not the wider StrOrBytesPath os.replace accepts: the only caller
+    # this stands in front of is atomic_write_text, which passes two Paths.
+    def spy(src: Path, dst: Path) -> None:
         seen.append(Path(src))
         return real_replace(src, dst)
 
@@ -90,7 +92,7 @@ def _explode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail at the rename, the last possible moment -- so a temp file exists."""
     from deixis import atomic
 
-    def boom(src, dst):  # type: ignore[no-untyped-def]
+    def boom(src: Path, dst: Path) -> None:
         raise Boom
 
     monkeypatch.setattr(atomic.os, "replace", boom)
@@ -136,7 +138,12 @@ def test_fsync_is_off_by_default_and_reaches_the_file_when_asked(
     from deixis import atomic
 
     synced: list[int] = []
-    monkeypatch.setattr(atomic.os, "fsync", lambda fd: synced.append(fd))
+    # def, not lambda: strict flags every unannotated lambda parameter, and a
+    # lambda has nowhere to put the annotation.
+    def record_fsync(fd: int) -> None:
+        synced.append(fd)
+
+    monkeypatch.setattr(atomic.os, "fsync", record_fsync)
 
     atomic_write_text(tmp_path / "a.json", "{}")
     assert synced == []

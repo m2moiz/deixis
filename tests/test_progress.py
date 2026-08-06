@@ -12,19 +12,19 @@ from deixis.transcribe import Progress, render_bar
 REAL = Progress(audio_done_s=750.0, audio_total_s=4427.028, elapsed_s=21.5)
 
 
-def test_fraction_is_audio_done_over_total():
+def test_fraction_is_audio_done_over_total() -> None:
     assert REAL.fraction == pytest.approx(0.16941388218009915)
 
 
-def test_speed_is_realtime_multiple():
+def test_speed_is_realtime_multiple() -> None:
     assert REAL.speed == pytest.approx(34.883720930232556)
 
 
-def test_eta_is_remaining_audio_at_current_speed():
+def test_eta_is_remaining_audio_at_current_speed() -> None:
     assert REAL.eta_s == pytest.approx(105.408136)
 
 
-def test_zero_elapsed_yields_no_speed_and_no_eta():
+def test_zero_elapsed_yields_no_speed_and_no_eta() -> None:
     """The first callback can fire before the clock has advanced.
 
     Without the `if self.elapsed_s` guard this raises ZeroDivisionError before
@@ -36,7 +36,7 @@ def test_zero_elapsed_yields_no_speed_and_no_eta():
     assert p.eta_s is None
 
 
-def test_zero_total_yields_no_fraction_and_no_eta():
+def test_zero_total_yields_no_fraction_and_no_eta() -> None:
     """An empty or silent file reports a total of zero samples."""
     p = Progress(audio_done_s=0.0, audio_total_s=0.0, elapsed_s=5.0)
     assert p.fraction == 0.0
@@ -44,14 +44,14 @@ def test_zero_total_yields_no_fraction_and_no_eta():
     assert p.eta_s is None
 
 
-def test_eta_is_none_before_any_audio_is_done():
+def test_eta_is_none_before_any_audio_is_done() -> None:
     """Speed == 0 must short-circuit; `speed < 0` instead of `<= 0` divides by zero."""
     p = Progress(audio_done_s=0.0, audio_total_s=100.0, elapsed_s=5.0)
     assert p.speed == 0.0
     assert p.eta_s is None
 
 
-def test_done_beyond_total_is_not_clamped():
+def test_done_beyond_total_is_not_clamped() -> None:
     """Pins today's behaviour so any future clamp is a deliberate change.
 
     Not reachable from parakeet-mlx, which passes min(start + chunk, len(audio)),
@@ -63,7 +63,7 @@ def test_done_beyond_total_is_not_clamped():
     assert p.eta_s == pytest.approx(-1.6666666666666667)
 
 
-def test_render_bar_shows_absolute_durations_not_just_a_percentage():
+def test_render_bar_shows_absolute_durations_not_just_a_percentage() -> None:
     """The golden line for a real run.
 
     On the shipped samples-as-seconds bug this same Progress rendered

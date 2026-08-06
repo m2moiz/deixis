@@ -9,8 +9,11 @@ Only the decode is faked. The chunk boundaries, the offsets and the merge are
 the real ones from deixis/chunking.py.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from conftest import FakeToken
@@ -19,6 +22,13 @@ from deixis.checkpoint import checkpoint_path_for
 from deixis.diarize import DiarizationUnavailable
 from deixis.merge import Turn
 from deixis.transcribe import CHUNK_S, OVERLAP_S, Progress, transcribe
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from conftest import FakeModel
+
+    from deixis.media import AudioStream
 
 # transcribe() probes its input for real; these tests care about the chunk loop
 # and not about ffmpeg, so they need the stub that used to be autouse.
@@ -37,7 +47,11 @@ def _tokens() -> list[FakeToken]:
     ]
 
 
-def test_transcribe_reports_progress_in_seconds(fake_parakeet, fake_media, tmp_path):
+def test_transcribe_reports_progress_in_seconds(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """The end-to-end version of the units regression.
 
     A 74-minute file at 16 kHz is 70,832,448 samples; reported as seconds that
@@ -46,33 +60,43 @@ def test_transcribe_reports_progress_in_seconds(fake_parakeet, fake_media, tmp_p
     fake_parakeet(sample_rate=RATE, tokens=[], audio_s=4427.028)
     seen: list[Progress] = []
 
-    transcribe(
-        fake_media,
-        tmp_path / "out.json",
-        on_progress=lambda p, state: seen.append(p) if state == "running" else None,
-    )
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def capture(p: Progress, state: str) -> None:
+        if state == "running":
+            seen.append(p)
+
+    transcribe(fake_media, tmp_path / "out.json", on_progress=capture)
 
     assert seen[0].audio_done_s == pytest.approx(CHUNK_S)
     assert seen[0].audio_total_s == pytest.approx(4427.028)
     assert seen[-1].audio_done_s == pytest.approx(4427.028)
 
 
-def test_transcribe_uses_the_models_sample_rate(fake_parakeet, fake_media, tmp_path):
+def test_transcribe_uses_the_models_sample_rate(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """A model at 8kHz must halve the seconds, not reuse a hardcoded 16000."""
     fake_parakeet(sample_rate=8_000, tokens=[], audio_s=60.0)
     seen: list[Progress] = []
 
-    transcribe(
-        fake_media,
-        tmp_path / "out.json",
-        on_progress=lambda p, state: seen.append(p) if state == "running" else None,
-    )
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def capture(p: Progress, state: str) -> None:
+        if state == "running":
+            seen.append(p)
+
+    transcribe(fake_media, tmp_path / "out.json", on_progress=capture)
 
     assert seen[-1].audio_done_s == pytest.approx(60.0)
     assert seen[-1].audio_total_s == pytest.approx(60.0)
 
 
-def test_transcribe_always_chunks(fake_parakeet, fake_media, tmp_path):
+def test_transcribe_always_chunks(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """Feeding an hour of audio to Metal in one buffer asks ~14.5GB and dies.
 
     Asserted on the audio actually handed to the decoder, chunk by chunk: four
@@ -93,7 +117,11 @@ def test_transcribe_always_chunks(fake_parakeet, fake_media, tmp_path):
     assert model.mels[1].start - model.mels[0].start == int((CHUNK_S - OVERLAP_S) * RATE)
 
 
-def test_transcribe_writes_the_timestamped_index(fake_parakeet, fake_media, tmp_path):
+def test_transcribe_writes_the_timestamped_index(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     fake_parakeet(tokens=_tokens())
     out = tmp_path / "out.json"
 
@@ -109,8 +137,10 @@ def test_transcribe_writes_the_timestamped_index(fake_parakeet, fake_media, tmp_
 
 
 def test_transcribe_on_an_empty_result_still_writes_a_file(
-    fake_parakeet, fake_media, tmp_path
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """No sentences must not mean no output -- the file is the deliverable."""
     fake_parakeet(tokens=[])
     out = tmp_path / "out.json"
@@ -121,15 +151,19 @@ def test_transcribe_on_an_empty_result_still_writes_a_file(
     assert payload["sentences"] == []
 
 
-def test_status_file_carries_seconds_and_a_state(fake_parakeet, fake_media, tmp_path):
+def test_status_file_carries_seconds_and_a_state(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """A detached run is inspected through this file; it is the only window in."""
     fake_parakeet(sample_rate=RATE, tokens=[], audio_s=4427.028)
     status = tmp_path / "status.json"
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
 
     # Reading from inside on_progress pins the production fan-out order: emit
     # writes the status file first, then calls on_progress.
-    def capture(_p, state):
+    def capture(_p: Progress, state: str) -> None:
         if state == "running":
             seen.append(json.loads(status.read_text()))
 
@@ -142,7 +176,11 @@ def test_status_file_carries_seconds_and_a_state(fake_parakeet, fake_media, tmp_
     assert first["fraction"] == pytest.approx(0.0271, abs=1e-4)
 
 
-def test_status_file_ends_in_the_done_state(fake_parakeet, fake_media, tmp_path):
+def test_status_file_ends_in_the_done_state(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     fake_parakeet(sample_rate=RATE, tokens=_tokens())
     status = tmp_path / "status.json"
 
@@ -154,7 +192,11 @@ def test_status_file_ends_in_the_done_state(fake_parakeet, fake_media, tmp_path)
     assert final["fraction"] == 1.0
 
 
-def test_no_status_path_writes_nothing(fake_parakeet, fake_media, tmp_path):
+def test_no_status_path_writes_nothing(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     fake_parakeet(tokens=_tokens())
 
     transcribe(fake_media, tmp_path / "out.json")
@@ -162,7 +204,11 @@ def test_no_status_path_writes_nothing(fake_parakeet, fake_media, tmp_path):
     assert set(tmp_path.iterdir()) == {fake_media, tmp_path / "out.json"}
 
 
-def test_a_completed_run_leaves_no_checkpoint(fake_parakeet, fake_media, tmp_path):
+def test_a_completed_run_leaves_no_checkpoint(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """A completed run leaves no checkpoint behind.
 
     The checkpoint exists to be outlived. One left behind would be replayed by
@@ -177,8 +223,10 @@ def test_a_completed_run_leaves_no_checkpoint(fake_parakeet, fake_media, tmp_pat
 
 
 def test_the_checkpoint_is_banked_once_per_chunk_before_progress_is_reported(
-    fake_parakeet, fake_media, tmp_path
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     """An observer must never be able to outrun what a restart could recover.
 
     Reading the checkpoint from inside on_progress pins the order: if the
@@ -189,7 +237,7 @@ def test_the_checkpoint_is_banked_once_per_chunk_before_progress_is_reported(
     ckpt = checkpoint_path_for(out)
     banked: list[int] = []
 
-    def capture(_p, state):
+    def capture(_p: Progress, state: str) -> None:
         if state == "running":
             banked.append(json.loads(ckpt.read_text())["next_start"])
 
@@ -207,8 +255,10 @@ def test_the_checkpoint_is_banked_once_per_chunk_before_progress_is_reported(
 
 
 def test_an_interrupted_run_leaves_a_checkpoint_and_no_transcript(
-    fake_parakeet, fake_media, tmp_path
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     fake_parakeet(sample_rate=RATE, tokens=[], audio_s=360.0)
     out = tmp_path / "out.json"
 
@@ -217,7 +267,7 @@ def test_an_interrupted_run_leaves_a_checkpoint_and_no_transcript(
 
     seen = 0
 
-    def die_after_two(_p, state):
+    def die_after_two(_p: Progress, state: str) -> None:
         nonlocal seen
         if state != "running":
             return
@@ -234,8 +284,10 @@ def test_an_interrupted_run_leaves_a_checkpoint_and_no_transcript(
 
 
 def test_no_resume_removes_a_checkpoint_it_will_not_use(
-    fake_parakeet, fake_media, tmp_path
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+) -> None:
     fake_parakeet(sample_rate=RATE, tokens=_tokens())
     out = tmp_path / "out.json"
     ckpt = checkpoint_path_for(out)
@@ -246,14 +298,14 @@ def test_no_resume_removes_a_checkpoint_it_will_not_use(
     assert not ckpt.exists()
 
 
-def _spy_on_atomic_write(monkeypatch) -> list[Path]:
+def _spy_on_atomic_write(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """Record every path routed through the atomic writer, and really write it."""
     import deixis.transcribe as transcribe_mod
 
     seen: list[Path] = []
     real = transcribe_mod.atomic_write_text
 
-    def spy(path, text, **kwargs):
+    def spy(path: Path, text: str, **kwargs: Any) -> None:
         seen.append(path)
         real(path, text, **kwargs)
 
@@ -262,8 +314,11 @@ def _spy_on_atomic_write(monkeypatch) -> list[Path]:
 
 
 def test_the_heartbeat_is_written_through_the_atomic_writer(
-    fake_parakeet, fake_media, tmp_path, monkeypatch
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Guards the call site, not the writer.
 
     tests/test_atomic.py proves atomic_write_text is atomic; it says nothing
@@ -282,8 +337,11 @@ def test_the_heartbeat_is_written_through_the_atomic_writer(
 
 
 def test_the_transcript_is_written_through_the_atomic_writer(
-    fake_parakeet, fake_media, tmp_path, monkeypatch
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The transcript is written whole or not at all.
 
     `out` is what every downstream tool reads, and a truncated transcript does
@@ -299,8 +357,11 @@ def test_the_transcript_is_written_through_the_atomic_writer(
 
 
 def test_the_failure_status_is_written_through_the_atomic_writer(
-    fake_parakeet, fake_media, tmp_path, monkeypatch
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """main()'s except-handler writes the one document a watcher polls hardest.
 
     A watcher distinguishing "died" from "not started yet" reads this file in a
@@ -311,7 +372,7 @@ def test_the_failure_status_is_written_through_the_atomic_writer(
     status = tmp_path / "status.json"
     seen = _spy_on_atomic_write(monkeypatch)
 
-    def boom(*args, **kwargs):
+    def boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("model exploded")
 
     monkeypatch.setattr(transcribe_mod, "transcribe", boom)
@@ -330,7 +391,7 @@ def test_the_failure_status_is_written_through_the_atomic_writer(
 # --- speaker labels ------------------------------------------------------
 
 
-def _one_speaker(**kw):
+def _one_speaker(**kw: Any) -> dict[str, Any]:
     """The fake diarization every labelled test below uses unless it says more.
 
     One turn spanning the whole of _tokens()'s single 750s sentence, so the
@@ -340,8 +401,11 @@ def _one_speaker(**kw):
 
 
 def test_sentences_carry_a_speaker_index_into_the_speakers_list(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     fake_parakeet(tokens=_tokens())
     fake_turns(**_one_speaker())
     out = tmp_path / "out.json"
@@ -356,7 +420,12 @@ def test_sentences_carry_a_speaker_index_into_the_speakers_list(
         assert 0 <= sentence["speaker"] < len(on_disk["speakers"])
 
 
-def test_the_labelled_schema_only_adds_keys(fake_parakeet, fake_media, tmp_path, fake_turns):
+def test_the_labelled_schema_only_adds_keys(
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """Additive or nothing. Every downstream reader of the old shape still works.
 
     Pinned against the unlabelled run in the same test rather than against a
@@ -376,8 +445,11 @@ def test_the_labelled_schema_only_adds_keys(fake_parakeet, fake_media, tmp_path,
 
 
 def test_no_diarize_output_is_the_old_schema_exactly(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """The byte-identity guard. --no-diarize must produce today's file.
 
     `fake_turns` is installed and asserted never called: "the keys are absent"
@@ -396,8 +468,11 @@ def test_no_diarize_output_is_the_old_schema_exactly(
 
 
 def test_diarization_failure_leaves_a_complete_unlabelled_transcript(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """An optional pass may not cost the hour of ASR that ran before it."""
     fake_parakeet(tokens=_tokens())
     fake_turns(raises=DiarizationUnavailable("senko is not installed"))
@@ -416,8 +491,11 @@ def test_diarization_failure_leaves_a_complete_unlabelled_transcript(
 
 
 def test_require_diarize_makes_the_failure_fatal(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     fake_parakeet(tokens=_tokens())
     fake_turns(raises=DiarizationUnavailable("senko is not installed"))
     out = tmp_path / "out.json"
@@ -431,8 +509,11 @@ def test_require_diarize_makes_the_failure_fatal(
 
 
 def test_a_bug_in_diarization_is_not_swallowed(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """An unexpected exception from the diarizer propagates.
 
     Same narrowness as the boundary itself: only DiarizationUnavailable
@@ -446,8 +527,11 @@ def test_a_bug_in_diarization_is_not_swallowed(
 
 
 def test_the_transcript_is_written_before_diarization_runs(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """§4's ordering, which is what makes optionality structural.
 
     The fake reads `out` from inside the diarization call. A refactor that
@@ -455,9 +539,13 @@ def test_the_transcript_is_written_before_diarization_runs(
     """
     fake_parakeet(tokens=_tokens())
     out = tmp_path / "out.json"
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
 
-    fake_turns(**_one_speaker(then=lambda wav: seen.append(json.loads(out.read_text()))))
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def record(wav: Path) -> None:
+        seen.append(json.loads(out.read_text()))
+
+    fake_turns(**_one_speaker(then=record))
 
     transcribe(fake_media, out)
 
@@ -467,8 +555,11 @@ def test_the_transcript_is_written_before_diarization_runs(
 
 
 def test_the_checkpoint_is_gone_before_diarization_runs(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """The checkpoint protects ASR, and ASR is banked once `out` exists.
 
     Left in place across this pass, a diarization crash would strand it, and
@@ -479,7 +570,11 @@ def test_the_checkpoint_is_gone_before_diarization_runs(
     ckpt = checkpoint_path_for(out)
     seen: list[bool] = []
 
-    fake_turns(**_one_speaker(then=lambda wav: seen.append(ckpt.exists())))
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def record(wav: Path) -> None:
+        seen.append(ckpt.exists())
+
+    fake_turns(**_one_speaker(then=record))
 
     transcribe(fake_media, out)
 
@@ -487,17 +582,20 @@ def test_the_checkpoint_is_gone_before_diarization_runs(
 
 
 def test_the_diarizing_state_is_reported_between_running_and_done(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     fake_parakeet(sample_rate=RATE, tokens=_tokens(), audio_s=360.0)
     fake_turns(**_one_speaker())
     states: list[str] = []
 
-    transcribe(
-        fake_media,
-        tmp_path / "out.json",
-        on_progress=lambda p, state: states.append(state),
-    )
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def capture(p: Progress, state: str) -> None:
+        states.append(state)
+
+    transcribe(fake_media, tmp_path / "out.json", on_progress=capture)
 
     assert "diarizing" in states
     assert states.index("running") < states.index("diarizing")
@@ -508,8 +606,11 @@ def test_the_diarizing_state_is_reported_between_running_and_done(
 
 
 def test_the_diarizing_heartbeat_reaches_the_status_file(
-    fake_parakeet, fake_media, tmp_path, fake_turns
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+) -> None:
     """The status file reports the diarizing phase while it runs.
 
     A detached run is inspected through this file, and this is the phase a
@@ -517,9 +618,13 @@ def test_the_diarizing_heartbeat_reaches_the_status_file(
     """
     fake_parakeet(sample_rate=RATE, tokens=_tokens(), audio_s=360.0)
     status = tmp_path / "status.json"
-    seen: list[dict] = []
+    seen: list[dict[str, Any]] = []
 
-    fake_turns(**_one_speaker(then=lambda wav: seen.append(json.loads(status.read_text()))))
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def record(wav: Path) -> None:
+        seen.append(json.loads(status.read_text()))
+
+    fake_turns(**_one_speaker(then=record))
 
     transcribe(fake_media, tmp_path / "out.json", status_path=status)
 
@@ -527,8 +632,12 @@ def test_the_diarizing_heartbeat_reaches_the_status_file(
 
 
 def test_the_labelled_transcript_is_written_through_the_atomic_writer(
-    fake_parakeet, fake_media, tmp_path, fake_turns, monkeypatch
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Both writes of the transcript go through the atomic writer.
 
     Two atomic writes to the same path, so there is no instant in which the
@@ -546,8 +655,12 @@ def test_the_labelled_transcript_is_written_through_the_atomic_writer(
 
 
 def test_the_diarizer_is_handed_the_extracted_wav_not_the_source(
-    fake_parakeet, fake_media, tmp_path, fake_turns, monkeypatch
-):
+    fake_parakeet: Callable[..., FakeModel],
+    fake_media: Path,
+    tmp_path: Path,
+    fake_turns: Callable[..., list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The diarizer is handed the extracted wav, never the source media.
 
     senko wants a wav and the source is normally a .mov.
@@ -560,9 +673,18 @@ def test_the_diarizer_is_handed_the_extracted_wav_not_the_source(
 
     fake_parakeet(tokens=_tokens())
     extracted: list[Path] = []
-    monkeypatch.setattr(media, "needs_conversion", lambda stream, rate: True)
+    # def, not lambda: an annotated lambda parameter is not expressible.
+    def always_convert(stream: AudioStream, rate: int) -> bool:
+        return True
 
-    def fake_extract(source, dest, rate, on_progress=None):
+    monkeypatch.setattr(media, "needs_conversion", always_convert)
+
+    def fake_extract(
+        source: Path,
+        dest: Path,
+        rate: int,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> Path:
         dest.write_bytes(b"RIFF")
         extracted.append(dest)
         return dest
