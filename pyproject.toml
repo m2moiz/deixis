@@ -18,6 +18,7 @@ diarize = [
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "pytest-timeout>=2.4.0",
     "ruff>=0.16.1",
 ]
@@ -28,7 +29,7 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers --timeout=120"
+addopts = "-q --strict-markers --timeout=120 -m 'not slow'"
 # Populated from an observed run (`pytest -W default`, 2026-08-06), not guessed:
 # a filter for a category that never fires is a filter that does nothing. The
 # only third-party noise is pynndescent's, reached through senko's clustering.
@@ -42,10 +43,14 @@ filterwarnings = [
     # measured, the qualified form left both of these firing.
     "ignore:Cannot cache compiled function",
 ]
-# Registered, not deselected: --strict-markers turns an unknown mark into a
-# collection error, and a test carved out of the default run is a test nobody
-# observes. `-m "not slow"` is there for anyone who wants the fast loop.
-markers = ["slow: loads the ASR model"]
+# `-m "not slow"` carves the model-loading tests out of the default run. The
+# argument that used to stand here -- "a test carved out of the default run is
+# a test nobody observes" -- was right, and the suite it defended was itself
+# unobserved: at 190s its summary line got buried three runs straight, so the
+# result could not be read. The carve-out now has a NAMED OBSERVER rather than
+# a habit: `just verify` runs everything and is the session-close gate, and CI
+# runs the fast lane on every push once a remote exists.
+markers = ["slow: loads the ASR model or the diarizer; run via `just verify`"]
 
 [tool.ruff]
 line-length = 100

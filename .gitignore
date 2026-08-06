@@ -21,3 +21,6 @@ dist/
 
 # Planning docs stay local (global pre-commit hook denies AI tooling files)
 .planning/
+
+# Coverage output and pytest caches are artifacts, not source.
+.coverage
