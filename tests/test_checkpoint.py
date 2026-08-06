@@ -162,3 +162,79 @@ def test_a_re_encoded_source_invalidates(tmp_path: Path) -> None:
     after = fingerprint(source, 100, "m", 120.0, 15.0)
 
     assert read_checkpoint(p, after) is None
+
+
+# --- the validated boundary -------------------------------------------------
+#
+# read_checkpoint parses bytes a PREVIOUS PROCESS wrote. It is the one place in
+# deixis that reads a document it did not produce in this run, and until the
+# checkpoint was validated it returned whatever the JSON happened to contain.
+
+
+def _write_raw(path: Path, **overrides: object) -> None:
+    """Write a checkpoint straight to disk, bypassing write_checkpoint.
+
+    write_checkpoint cannot produce the shapes below -- that is the point. They
+    come from a different writer, an older format, or a partially hand-edited
+    file, which is exactly what the validation is for.
+    """
+    payload: dict[str, object] = {
+        "fingerprint": dataclasses.asdict(FP),
+        "next_start": 44,
+        "tokens": [
+            {"id": 5, "text": " hello", "start": 1.25, "duration": 0.32, "confidence": 0.91}
+        ],
+    }
+    payload.update(overrides)
+    path.write_text(json.dumps(payload))
+
+
+def test_a_string_next_start_is_refused(tmp_path: Path) -> None:
+    """The bug this validation exists for.
+
+    Before the model, `payload["next_start"]` was returned unconverted and the
+    `except (KeyError, TypeError)` net never fired -- indexing a dict whose
+    value is a string raises nothing. read_checkpoint returned ('44', []), and
+    the string travelled on to transcribe.py, where `skip_before / rate` raised
+    TypeError several frames from the file that produced it.
+    """
+    p = tmp_path / "out.json.ckpt"
+    _write_raw(p, next_start="44")
+    assert read_checkpoint(p, FP) is None
+
+
+def test_a_float_next_start_is_refused(tmp_path: Path) -> None:
+    """44.0 is not a sample index, however close it looks to one."""
+    p = tmp_path / "out.json.ckpt"
+    _write_raw(p, next_start=44.0)
+    assert read_checkpoint(p, FP) is None
+
+
+def test_a_token_missing_a_field_is_refused(tmp_path: Path) -> None:
+    """A half-written token means the whole document is untrustworthy."""
+    p = tmp_path / "out.json.ckpt"
+    _write_raw(p, tokens=[{"id": 5, "text": " hi", "start": 1.25, "duration": 0.32}])
+    assert read_checkpoint(p, FP) is None
+
+
+def test_integer_valued_token_numbers_are_accepted(tmp_path: Path) -> None:
+    """Deliberately lax where strictness would DESTROY a resumable run.
+
+    A token whose start/duration/confidence happens to serialise as a bare JSON
+    integer is valid data. Under a strict model those are rejected, and a
+    rejected checkpoint is a silent full re-transcription presenting as "resume
+    just stopped working" -- the exact failure class this validation exists to
+    close, reintroduced by the validation itself.
+
+    So the numerics coerce and only next_start is strict. This test is the
+    reason that asymmetry is not an oversight.
+    """
+    p = tmp_path / "out.json.ckpt"
+    _write_raw(p, tokens=[{"id": 5, "text": " hi", "start": 0, "duration": 1, "confidence": 1}])
+
+    got = read_checkpoint(p, FP)
+    assert got is not None
+    next_start, tokens = got
+    assert next_start == 44
+    assert tokens[0].start == 0.0
+    assert tokens[0].duration == 1.0

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from parakeet_mlx.alignment import AlignedToken
+from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
 
 from deixis.atomic import atomic_write_text
 
@@ -110,16 +111,6 @@ def _to_json(token: AlignedToken) -> dict[str, Any]:
     }
 
 
-def _from_json(d: dict[str, Any]) -> AlignedToken:
-    return AlignedToken(
-        id=d["id"],
-        text=d["text"],
-        start=d["start"],
-        duration=d["duration"],
-        confidence=d["confidence"],
-    )
-
-
 def write_checkpoint(
     path: Path, fp: Fingerprint, next_start: int, tokens: list[AlignedToken]
 ) -> None:
@@ -137,6 +128,50 @@ def write_checkpoint(
     # fsync here, unlike the heartbeat: losing this costs minutes of GPU time,
     # and one fsync per ~105 seconds of audio is free.
     atomic_write_text(path, json.dumps(payload), fsync=True)
+
+
+class _TokenDoc(BaseModel):
+    """One token as it appears on disk.
+
+    NOT strict. Strict mode rejects a JSON int where a float is declared, and
+    AlignedToken is a plain dataclass with no coercion -- so a token whose
+    duration or confidence happened to serialise as a bare integer would make
+    read_checkpoint return None and silently re-transcribe a resumable run.
+    "Resume just stopped working" with no error is the exact failure class this
+    validation exists to close, so the numerics stay lax and the strictness
+    goes where the real bug is: next_start, below.
+    """
+
+    id: int
+    text: str
+    start: float
+    duration: float
+    confidence: float
+
+
+class _CheckpointDoc(BaseModel):
+    """The checkpoint document, validated because a previous PROCESS wrote it.
+
+    This is the one trust boundary in deixis that reads bytes it did not
+    produce in this run. Everything else here is internal and belongs to the
+    type checker.
+
+    `next_start` is strict: it is an index into an audio buffer, and the string
+    "44" survived the old `except (KeyError, TypeError)` net all the way to
+    transcribe.py, where `skip_before / rate` raised TypeError. Loud, but at
+    the wrong layer and only on the CLI's progress path -- a library caller
+    with a different path could carry it further.
+
+    `fingerprint` is `dict[str, Any]`: it is compared for exact equality
+    against a freshly built one before this model is ever constructed, so
+    validating its fields would restate the check that already happened.
+    """
+
+    model_config = ConfigDict(strict=False)
+
+    fingerprint: dict[str, Any]
+    next_start: StrictInt
+    tokens: list[_TokenDoc]
 
 
 def read_checkpoint(path: Path, fp: Fingerprint) -> tuple[int, list[AlignedToken]] | None:
@@ -161,10 +196,14 @@ def read_checkpoint(path: Path, fp: Fingerprint) -> tuple[int, list[AlignedToken
         return None
 
     try:
-        next_start: int = payload["next_start"]
-        raw_tokens: list[dict[str, Any]] = payload["tokens"]
-        return next_start, [_from_json(d) for d in raw_tokens]
-    except (KeyError, TypeError):
+        doc = _CheckpointDoc.model_validate(payload)
+    except ValidationError:
         # Well-formed JSON with the right fingerprint but the wrong shape means
         # something wrote this file that was not us. Do not guess.
         return None
+
+    return doc.next_start, [
+        AlignedToken(id=t.id, text=t.text, start=t.start, duration=t.duration,
+                     confidence=t.confidence)
+        for t in doc.tokens
+    ]

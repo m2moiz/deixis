@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "numba>=0.61",
     "parakeet-mlx>=0.5.2",
+    "pydantic>=2.13.4",
 ]
 
 [project.optional-dependencies]
