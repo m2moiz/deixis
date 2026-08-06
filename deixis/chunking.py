@@ -16,6 +16,11 @@ pyproject pins the version rather than floating it.
 
 from __future__ import annotations
 
+__all__ = [
+    "chunk_starts",
+    "transcribe_chunked",
+]
+
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 

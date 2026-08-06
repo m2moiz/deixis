@@ -13,6 +13,16 @@ build banner with the actual diagnosis buried in it.
 
 from __future__ import annotations
 
+__all__ = [
+    "MediaError",
+    "FFmpegNotFound",
+    "NoAudioStream",
+    "AudioStream",
+    "probe",
+    "needs_conversion",
+    "extract_audio",
+]
+
 import json
 import shutil
 import subprocess

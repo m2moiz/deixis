@@ -8,6 +8,15 @@ durability -- see atomic_write_text's fsync argument.
 
 from __future__ import annotations
 
+__all__ = [
+    "SCHEMA",
+    "Fingerprint",
+    "fingerprint",
+    "checkpoint_path_for",
+    "write_checkpoint",
+    "read_checkpoint",
+]
+
 import dataclasses
 import json
 from dataclasses import dataclass

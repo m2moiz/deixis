@@ -9,6 +9,10 @@ missing file, which at least announces itself.
 
 from __future__ import annotations
 
+__all__ = [
+    "atomic_write_text",
+]
+
 import os
 from pathlib import Path
 

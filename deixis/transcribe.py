@@ -10,6 +10,16 @@ trust.
 
 from __future__ import annotations
 
+__all__ = [
+    "DEFAULT_MODEL",
+    "CHUNK_S",
+    "OVERLAP_S",
+    "Progress",
+    "render_bar",
+    "transcribe",
+    "main",
+]
+
 import json
 import sys
 import tempfile

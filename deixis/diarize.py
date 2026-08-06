@@ -20,6 +20,13 @@ dependency: `uv sync --extra diarize`.
 
 from __future__ import annotations
 
+__all__ = [
+    "INSTALL_HINT",
+    "DiarizationUnavailable",
+    "Diarization",
+    "speaker_turns",
+]
+
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple

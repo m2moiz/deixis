@@ -24,6 +24,13 @@ structures, which is what makes it testable without a diarizer.
 
 from __future__ import annotations
 
+__all__ = [
+    "Turn",
+    "TurnIndex",
+    "label_sentence",
+    "label_sentences",
+]
+
 import bisect
 from collections import Counter
 from collections.abc import Mapping, Sequence

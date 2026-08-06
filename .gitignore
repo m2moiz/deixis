@@ -8,6 +8,8 @@ scratch/*
 
 .venv/
 __pycache__/
+# Build output, produced by `uv build`. Source is tracked; artifacts are not.
+dist/
 *.wav
 *.mov
 

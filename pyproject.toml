@@ -22,12 +22,12 @@ dev = [
     "ruff>=0.16.1",
 ]
 
-# pythonpath is load-bearing, not cosmetic: there is no [build-system], so uv
-# treats deixis as a virtual project and never installs the package into .venv.
-# Without this, `import deixis` fails from a test file.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
 addopts = "-q --strict-markers --timeout=120"
 # Populated from an observed run (`pytest -W default`, 2026-08-06), not guessed:
 # a filter for a category that never fires is a filter that does nothing. The
