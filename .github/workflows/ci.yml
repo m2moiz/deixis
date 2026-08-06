@@ -19,8 +19,13 @@ jobs:
     runs-on: macos-14
 
     steps:
+      # Exact tags, both verified to resolve against the GitHub API. The first
+      # push failed here: `astral-sh/setup-uv@v9` does not exist -- astral
+      # publish releases up to v9.0.0 but only a v7 FLOATING major tag, so @v9
+      # is unresolvable. Pinning the release tag is also the safer form: a
+      # floating major silently changes under you.
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
