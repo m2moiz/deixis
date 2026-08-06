@@ -1,13 +1,150 @@
 # deixis
 
-Makes a long screen recording answerable.
+[![ci](https://github.com/m2moiz/deixis/actions/workflows/ci.yml/badge.svg)](https://github.com/m2moiz/deixis/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
+[![platform](https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey)](#requirements)
+
+**Make a long screen recording answerable.** deixis turns a recording into a
+timestamped, speaker-labelled transcript that acts as an *index into the video*
+— so an agent can read cheap text, notice a moment that only makes sense
+visually, and ask for that exact instant.
 
 *Deixis* is the linguistic term for words that only mean something in context —
 *this*, *here*, *that one*. It is exactly what breaks an audio-only transcript of
 a screen-share: **"see this column here"** is the most information-dense sentence
 in the meeting and, as text, it is worthless. The referent was on screen.
 
-## The idea
+---
+
+## Status
+
+| | |
+|---|---|
+| **Transcript half** | working — ingestion, chunked ASR, resume, optional speaker labels |
+| **Retrieval half** | **not built.** No frame extraction, no vision model. See [Roadmap](#roadmap) |
+
+So today deixis is a resumable, observable transcriber whose output is designed
+to be indexed against. The half that answers *"see this column here"* is the
+work ahead, and it is blocked on a measurement, not on code — see
+[Roadmap](#roadmap).
+
+---
+
+## Requirements
+
+- **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], which is
+  Metal-backed. There is no CPU or CUDA path.
+- **Python 3.12+**
+- **ffmpeg** on `PATH`, for anything that is not already a 16 kHz mono WAV.
+- [`uv`][uv] for dependency management.
+
+[pmlx]: https://github.com/senstella/parakeet-mlx
+[uv]: https://docs.astral.sh/uv/
+
+## Install
+
+```bash
+git clone https://github.com/m2moiz/deixis
+cd deixis
+uv sync                      # transcript only
+uv sync --extra diarize      # + speaker labels (see the caveats below)
+```
+
+Model weights (~2.4 GB) download on first run and are cached by
+`huggingface_hub`.
+
+## Usage
+
+```bash
+uv run python -m deixis.transcribe recording.mov -o transcript.json
+```
+
+Progress renders live on stderr:
+
+```
+    running [##########--------------] 42%  31:12/74:07 audio  elapsed 1:29  eta 2:01  35.4x
+```
+
+| Flag | |
+|---|---|
+| `-o, --out PATH` | where the transcript JSON goes (required) |
+| `--status PATH` | write a JSON heartbeat, for runs you detach from |
+| `--no-resume` | ignore any checkpoint and start over |
+| `--no-diarize` | skip speaker labelling |
+| `--require-diarize` | fail rather than degrade if labelling cannot run |
+| `--model ID` | override the ASR model |
+
+**Long runs.** An hour of audio is not something you sit and watch, so detach it
+and poll the heartbeat:
+
+```bash
+uv run python -m deixis.transcribe meeting.mov -o out.json --status run.json &
+jq -r '"\(.state) \(.fraction * 100 | floor)% eta \(.eta_s)s"' run.json
+```
+
+`state` moves `extracting → running → diarizing → done`, or `failed` with an
+`error`. The file is written atomically, so a reader never sees half of one.
+
+**Interruptions are cheap.** A checkpoint is written beside the output every
+chunk. Re-running the same command resumes from it; a changed model, source
+file, or chunk geometry invalidates it automatically and the run starts over
+rather than reusing tokens that describe something else.
+
+## Output
+
+```jsonc
+{
+  "audio": "/path/to/recording.mov",   // the SOURCE, not a temp wav
+  "model": "mlx-community/parakeet-tdt-0.6b-v3",
+  "speakers": ["SPEAKER_00", "SPEAKER_01"],   // only when diarization ran
+  "diarization": "senko 0.1.0",               // absent if it did not
+  "text": "the whole transcript as one string",
+  "sentences": [
+    {
+      "start": 12.34,
+      "end": 15.02,
+      "speaker": 0,                     // index into `speakers`
+      "text": " See this column here.",
+      "tokens": [{"t": 12.34, "w": " See"}, {"t": 12.51, "w": " this"}]
+    }
+  ]
+}
+```
+
+Two things about this shape are deliberate:
+
+- **`speaker` is an integer index, not a name.** It costs 1.7% of file size
+  where `"SPEAKER_01"` on every sentence costs 3.3% for no extra information —
+  and an integer *looks* like the arbitrary cluster id it is, where a name
+  invites you to treat it as an identity.
+- **`diarization` is absent when the pass did not run.** Without that, "no
+  diarization" and "diarization found one speaker" are the same document.
+
+## Development
+
+```bash
+just test        # fast lane, ~10s
+just typecheck   # pyright strict, package and tests
+just check       # THE gate: types, lint, fast tests. What CI runs.
+just verify      # everything incl. the end-to-end gates, with coverage
+just mutate      # mutation testing over the pure modules
+```
+
+`just verify` is the session-close gate and takes ~20 minutes: it runs real ASR
+and diarization, including two end-to-end gates that deliberately re-prove they
+can fail. That cost is the point — see [docs/tooling-gaps.md](docs/tooling-gaps.md).
+
+| Doc | |
+|---|---|
+| [docs/tooling-gaps.md](docs/tooling-gaps.md) | the practices and tools this project is built to, written out of an audit where five defects shipped past a green suite |
+| [docs/resume-gate-design.md](docs/resume-gate-design.md) | how you test a resume that silently restarts, given it produces byte-identical output |
+| [docs/mutmut-triage.md](docs/mutmut-triage.md) | every surviving mutant and why it is accepted |
+
+---
+
+## Why it is built this way
+
+### The idea
 
 Not "extract everything from the video." The video stays on disk as a
 random-access resource, and the transcript is its index.
@@ -30,29 +167,26 @@ screen-share. Transcript-driven retrieval never enumerates scenes at all, and th
 "which of these 60 frames mattered?" judgement is answered by the speaker, out
 loud, at a known timestamp.
 
-## Decisions made so far
+### Decisions made so far
 
-**ASR: Parakeet TDT 0.6b v3, reusing weights already on this machine.**
-Handy ships `parakeet-tdt-0.6b-v3-int8` as a NeMo ONNX export at
-`~/Library/Application Support/com.pais.handy/models/`. `onnx-asr` loads that
-directory directly — **verified, no extra model download**:
+**ASR: Parakeet TDT 0.6b v3 via `parakeet-mlx`.**
+Parakeet over Whisper for two structural reasons: it does not hallucinate on
+silence — it predicts token *duration* and skips gaps rather than grinding every
+frame — and that same mechanism makes its timestamps **native** rather than
+recovered after the fact by DTW alignment the way Whisper's are. Native
+timestamps are the whole product here: the transcript is only an index if its
+times point at the right instants.
 
-```python
-import onnx_asr
-p = "~/Library/Application Support/com.pais.handy/models/parakeet-tdt-0.6b-v3-int8"
-model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", p, quantization="int8").with_timestamps()
-result = model.recognize("audio.wav")
-result.tokens, result.timestamps   # sub-second token alignment
-```
+The MLX build was chosen over two other local copies of the same model. Handy
+ships a NeMo ONNX export and FluidAudio a CoreML `.mlmodelc` of v2; same
+weights, three incompatible formats. MLX wins on being Metal-native on the
+target hardware and on `parakeet-mlx` exposing per-token alignment directly.
 
-Parakeet over Whisper for two reasons, both structural: it does not hallucinate
-on silence (it predicts token *duration* and skips gaps, rather than grinding
-every frame), and that same mechanism makes its timestamps **native** rather than
-recovered after the fact by DTW alignment the way Whisper's are.
-
-Other local copies exist but are not reusable: FluidAudio keeps a CoreML
-`.mlmodelc` build of v2, and `parakeet-mlx` wants MLX safetensors. Same model,
-three incompatible export formats.
+**Chunking is not optional at meeting length.** `parakeet-mlx` defaults
+`chunk_duration` to `None`, which feeds the whole file to Metal in one buffer —
+an hour of audio asks for ~14.5 GB against a ~9.5 GB max buffer and dies. deixis
+drives the chunk loop itself at 120s with 15s overlap, which is also what makes
+per-chunk progress and resume possible.
 
 **Not OCR.** OCR flattens the frame to text and throws away everything that
 carried the meaning — layout, table structure, what is highlighted, what the
@@ -150,7 +284,12 @@ whose ground truth is two speakers:
   nothing to do with `SPEAKER_01` in another. It is a clustering artifact, not a
   speaking order and not a person.
 
-## Open
+---
+
+## Roadmap
+
+The transcript half is done. The retrieval half is not, and it is blocked on a
+**measurement rather than on code**:
 
 - **Frame dedup has no validated method for screen content.** Searching
   "screencast keyframe extraction", "slide change detection", "lecture video
@@ -175,7 +314,7 @@ whose ground truth is two speakers:
   is the interesting phase-2 option, but no MLX port exists and nobody reports
   running `colpali-engine` on Apple Silicon MPS. Experiment, not infrastructure.
 
-## Prior art
+### Prior art
 
 Nothing does "long screen-recording in → deduped, VLM-described,
 timestamp-queryable index out". `HKUDS/VideoRAG` is active and closest in spirit
@@ -185,6 +324,19 @@ are OCR-based, which is the approach this tool rejects.
 ## Layout
 
 ```
-deixis/     package
-scratch/    working files, not committed
+deixis/            the package
+  media.py         ffmpeg ingestion, with progress and actionable errors
+  transcribe.py    the CLI and the orchestration
+  chunking.py      the chunk loop parakeet-mlx does not provide
+  checkpoint.py    resume, and the validated boundary that reads it
+  merge.py         token-vote speaker labelling
+  diarize.py       the fail-soft senko boundary
+  atomic.py        write-or-do-not-write, for files a reader may be watching
+tests/             fast unit tests, plus the two slow end-to-end gates
+scratch/           working probes; the data beside them is gitignored
+docs/              the reasoning that did not fit here
 ```
+
+## License
+
+None yet. Ask before reusing.
