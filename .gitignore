@@ -1,4 +1,11 @@
-scratch/
+# scratch/ holds working DATA -- recordings, transcripts, gate run dirs. That is
+# what is ignored. The scripts in it are code and are tracked: resume_gate.py and
+# diarize_gate.py are the only checks that catch a silently-restarting resume or
+# a skipped diarization pass, and an untracked check is a check nobody runs.
+scratch/*
+!scratch/*.py
+!scratch/*.sh
+
 .venv/
 __pycache__/
 *.wav
