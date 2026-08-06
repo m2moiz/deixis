@@ -68,7 +68,10 @@ jobs:
       # missing system dependency cannot quietly shrink the suite again.
       - name: no test may silently skip
         run: |
-          uv run pytest -q 2>&1 | tail -3 | tee /tmp/summary
+          # NOT `pytest -q`: addopts already carries -q, so a second one
+          # makes -qq and pytest suppresses the summary line entirely --
+          # the guard then fails on a run where nothing was wrong.
+          uv run pytest 2>&1 | tail -3 | tee /tmp/summary
           grep -qE '^116 passed, 11 deselected' /tmp/summary || {
             echo "::error::fast lane is not 116 passed / 11 deselected -- something skipped"
             exit 1
