@@ -1,15 +1,25 @@
 name: ci
 
-# DORMANT AS COMMITTED. This repository has no git remote (`git remote -v` is
-# empty), so nothing here has ever run. Every step below was executed locally
-# in sequence and is green, and the action versions were checked against their
-# published releases -- but "expected to pass" is the strongest honest claim
-# available, and the first real run is the observation. A bead tracks watching
-# it.
+# NO LONGER DORMANT. Runs on github.com/m2moiz/deixis since 2026-08-06.
+#
+# The first three runs are why this file could not be trusted until it ran:
+#   1. FAILED in 8s   -- astral-sh/setup-uv@v9 does not resolve (releases go to
+#                        v9.0.0 but only a v7 floating major tag is published).
+#   2. "PASSED" in 79s -- and ran 14 FEWER tests than a local run. ffmpeg is not
+#                        on the macos-14-arm64 image, so the whole ingestion
+#                        boundary skipped and the badge went green anyway.
+#   3. FAILED          -- the skip-guard added for (2) ran `pytest -q` on top of
+#                        an addopts that already had -q, making -qq, which
+#                        suppresses the summary line it greps for.
+# Every one was invisible to local step-verification, yamllint, and a live
+# check of the action versions.
 
 on:
   push:
   pull_request:
+  # Manual trigger. A forced update does not always fire `push`, and after a
+  # history rewrite that is exactly when you most want to re-run the gate.
+  workflow_dispatch:
 
 jobs:
   check:
