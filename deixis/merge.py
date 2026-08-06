@@ -14,9 +14,8 @@ sentence. Counting tokens can only ever count words that were actually said.
 
 The two agree on all but 6 of 664 sentences on the reference recording, so this
 is a small correctness win, not a large one. It is kept because the failure mode
-of interval overlap scales with how interleaved a conversation is, and a
-two-person call with long uninterrupted stretches is the easy case, not the
-adversarial one.
+of interval overlap scales with how interleaved the speech is, and two speakers
+with long uninterrupted stretches is the easy case, not the adversarial one.
 
 Nothing here imports senko or loads a model: it is a function of two plain data
 structures, which is what makes it testable without a diarizer.

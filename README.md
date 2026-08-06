@@ -100,7 +100,7 @@ dependency that breaks `uv sync` for anyone not on Apple Silicon. Without it the
 transcript is written exactly as before and the run exits 0.
 
 senko over pyannote for one measured reason: it imports no torch, and on the
-74-minute reference call it diarized in **8.0s — 554x realtime**, plus **12.4s**
+74-minute reference recording it diarized in **8.0s — 554x realtime**, plus **12.4s**
 of warm model load. Against 149s of ASR that is **+14%**. The first run on a
 machine pays **~51.5s** instead of 12.4s while CoreML compiles and persists its
 embeddings cache; that is a one-off, and it is not the steady state a first-time
@@ -119,17 +119,18 @@ and found one speaker" are the same document.
 Sentences are labelled by counting **token votes** against turns, not by
 intersecting the sentence's span with them. A span includes its internal
 silences, so a speaker talking during a pause mid-sentence can hold more of the
-span than the speaker who said the words. On the reference call the two
+span than the speaker who said the words. On the reference recording the two
 approaches disagree on 6 of 664 sentences — this is a small correctness win, not
 a large one, and it is kept because interval overlap fails worse the more
-interleaved the conversation gets.
+interleaved the speech gets.
 
-What it gets wrong, all of it measured on a real 74-minute two-person call:
+What it gets wrong, all of it measured on a 74-minute reference recording
+whose ground truth is two speakers:
 
-- **Over-clustering.** senko found **three** speakers for two people. The
+- **Over-clustering.** senko found **three** speakers where there are two. The
   phantom holds 58.5s across 13 turns and **wins zero of the 664 sentences**
   under the token vote — the sentence-level schema absorbs it, where a
-  per-token one would have put a nonexistent third participant in front of the
+  per-token one would have put a nonexistent third speaker in front of the
   agent 13 times. senko exposes **no `num_speakers` knob**; clustering is
   unsupervised and the only parameter is `mer_cos`. A file where a phantom
   cluster *does* win sentences would produce a transcript with a speaker who
