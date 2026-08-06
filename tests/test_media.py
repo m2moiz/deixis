@@ -10,8 +10,10 @@ The fixtures are seconds long and a few kilobytes; no binary is committed.
 
 from __future__ import annotations
 
+import gc
 import shutil
 import subprocess
+import warnings
 from pathlib import Path
 
 import pytest
@@ -222,3 +224,25 @@ def test_missing_ffmpeg_names_the_binary(
         media.extract_audio(video_with_audio, tmp_path / "a.wav", 16000)
     assert "ffmpeg is not on PATH" in str(exc.value)
     assert "brew install ffmpeg" in str(exc.value)
+
+
+def test_extraction_closes_the_ffmpeg_pipe(tmp_path: Path, video_with_audio: Path) -> None:
+    """The ffmpeg stdout pipe is closed explicitly, not left to the collector.
+
+    Popen with stdout=PIPE hands back a TextIOWrapper that stays open until
+    something closes it, and `proc.wait()` does not. CPython's refcounting then
+    reclaims it when `proc` falls out of scope -- so a descriptor COUNT cannot
+    see the bug, which is why this test asserts on the ResourceWarning instead.
+
+    That warning is the real signal, and it is invisible in a normal run
+    because Python ignores ResourceWarning by default. It fired throughout this
+    project's history until it was found by running the suite once with
+    `-W default` and reading the output rather than the pass count.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        media.extract_audio(video_with_audio, tmp_path / "a.wav", 16000)
+        gc.collect()
+
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert not leaked, f"extract_audio leaked: {[str(w.message) for w in leaked]}"

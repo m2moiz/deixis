@@ -177,10 +177,15 @@ def extract_audio(
     # stderr goes to a file rather than a pipe: with two pipes and only one
     # reader, a chatty decoder can fill the stderr buffer and deadlock while we
     # sit reading stdout.
-    with tempfile.TemporaryFile("w+") as errfile:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=errfile, text=True
-        )
+    # Popen as a context manager, not a bare call: __exit__ closes the stdout
+    # pipe and waits. Without it the pipe survives until the garbage collector
+    # happens to run, which leaks a file descriptor per extraction -- invisible
+    # in a normal run because Python ignores ResourceWarning by default, and
+    # unbounded in a long-lived process that transcribes more than one file.
+    with (
+        tempfile.TemporaryFile("w+") as errfile,
+        subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errfile, text=True) as proc,
+    ):
         assert proc.stdout is not None
         for line in proc.stdout:
             key, _, value = line.strip().partition("=")

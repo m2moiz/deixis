@@ -36,9 +36,11 @@ addopts = "-q --strict-markers --timeout=120 -m 'not slow'"
 # a filter for a category that never fires is a filter that does nothing. The
 # only third-party noise is pynndescent's, reached through senko's clustering.
 #
-# ResourceWarning is deliberately NOT filtered. It fires from transcribe.py:275
-# and test_media.py, and it points at an unclosed file in our own code -- that
-# is a defect to fix, not noise to hide. Tracked in a bead.
+# ResourceWarning is deliberately NOT filtered. It is off by default in Python,
+# so it only shows under `-W default` -- which is exactly how the unclosed
+# ffmpeg pipe in media.extract_audio was found (deixis-3du, now fixed and
+# regression-tested). What remains is upstream, in parakeet_mlx/utils.py.
+# Filtering the category would have hidden ours along with theirs.
 filterwarnings = [
     # No category qualifier: NumbaWarning does not subclass UserWarning, and
     # naming a category we cannot import here would silently match nothing --
