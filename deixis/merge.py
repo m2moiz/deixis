@@ -60,6 +60,13 @@ class TurnIndex:
     """
 
     def __init__(self, turns: Sequence[Turn]) -> None:
+        """Index `turns`, sorting them so every query below can bisect.
+
+        Raises:
+            ValueError: if `turns` is empty. An empty index has no correct
+                answer to give, and returning None would push the decision to
+                every caller.
+        """
         if not turns:
             raise ValueError("cannot index an empty turn list")
         # Sorted here rather than demanded of the caller: it is one pass over a

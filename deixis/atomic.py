@@ -36,12 +36,15 @@ def atomic_write_text(path: Path, text: str, *, fsync: bool = False) -> None:
     # cannot hand each other a half-built temp file to rename into place.
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with tmp.open("w", encoding="utf-8") as f:
             f.write(text)
             if fsync:
                 f.flush()
                 os.fsync(f.fileno())
-        os.replace(tmp, path)
+        # Suppressed below: os.replace IS the atomicity primitive this module is
+        # built on -- rename(2) semantics, documented above. Path.replace is the
+        # same call with a nicer face, but naming os.replace is the point.
+        os.replace(tmp, path)  # noqa: PTH105
     except BaseException:
         # BaseException, not Exception: a KeyboardInterrupt mid-write is
         # exactly the case that would otherwise strand a temp file next to the

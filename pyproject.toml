@@ -46,3 +46,28 @@ filterwarnings = [
 # collection error, and a test carved out of the default run is a test nobody
 # observes. `-m "not slow"` is there for anyone who wants the fast loop.
 markers = ["slow: loads the ASR model"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "ANN", "D", "PTH", "ARG", "C4", "RET", "RUF"]
+ignore = [
+    "ANN401",  # `audio_data: Any` in chunking is deliberate: mlx array vs test double
+]
+# PL is deliberately absent: PLC0415 (import-outside-top-level) flags 34 sites,
+# and the function-local imports here are load-bearing -- they keep an optional
+# extra out of the import path. Selecting PL would mean 60+ suppressions
+# defending an intentional design.
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# ANN is deliberately NOT ignored for tests: Phase 3b puts them under pyright
+# strict, which demands the same annotations. Doing that work twice, against two
+# tools, would be incoherent -- so the ANN batch is deferred to 3b and done once.
+"tests/**" = ["D1", "ARG"]
+# scratch/*.py is tracked code (working probes, not shipped), so ruff lints it.
+# Fix the mechanical ones; ignore the classes that do not matter in a probe.
+"scratch/**" = ["ANN", "D", "ARG", "B905", "E501", "SIM115", "PTH123"]

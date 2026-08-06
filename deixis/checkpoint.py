@@ -11,10 +11,10 @@ from __future__ import annotations
 __all__ = [
     "SCHEMA",
     "Fingerprint",
-    "fingerprint",
     "checkpoint_path_for",
-    "write_checkpoint",
+    "fingerprint",
     "read_checkpoint",
+    "write_checkpoint",
 ]
 
 import dataclasses
@@ -89,6 +89,11 @@ def fingerprint(
 
 
 def checkpoint_path_for(out: Path) -> Path:
+    """Return the checkpoint path that sits beside `out`.
+
+    A sibling of the output rather than a temp-dir entry: a resume has to find
+    it on a later run, in a later process, with no shared state but the path.
+    """
     return out.with_name(out.name + ".ckpt")
 
 

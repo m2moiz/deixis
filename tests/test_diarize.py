@@ -9,6 +9,7 @@ of CoreML model load would still pass, and would still be the wrong test, so
 
 from __future__ import annotations
 
+import itertools
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -201,7 +202,7 @@ def test_senko_labels_the_real_clip(chunked_audio_path: Path) -> None:
 
     for turn in result.turns:
         assert turn.end > turn.start
-    for earlier, later in zip(result.turns, result.turns[1:]):
+    for earlier, later in itertools.pairwise(result.turns):
         assert later.start >= earlier.end, "turns overlap; the vote assumes they do not"
 
     labelled = sum(t.end - t.start for t in result.turns)

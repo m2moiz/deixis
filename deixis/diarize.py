@@ -22,13 +22,14 @@ from __future__ import annotations
 
 __all__ = [
     "INSTALL_HINT",
-    "DiarizationUnavailable",
     "Diarization",
+    "DiarizationUnavailable",
     "speaker_turns",
 ]
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 from typing import NamedTuple
 
 from deixis.merge import Turn
@@ -101,7 +102,7 @@ def speaker_turns(wav: Path) -> Diarization:
     return Diarization(turns=turns, labels=labels, provenance=_provenance())
 
 
-def _import_senko():
+def _import_senko() -> ModuleType:
     """Import senko, or say how to get it.
 
     Function-local, mirroring how transcribe() imports parakeet: the extra being
@@ -124,7 +125,7 @@ def _provenance() -> str:
 
 
 def _to_turns(segments: Sequence[dict]) -> tuple[list[Turn], list[str]]:
-    """senko's named segments, as sorted turns over integer speaker indices.
+    """Senko's named segments, as sorted turns over integer speaker indices.
 
     Labels are sorted so the index a sentence carries is stable across runs of
     the same file. It is still an arbitrary cluster id -- SPEAKER_01 in one

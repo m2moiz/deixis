@@ -7,6 +7,7 @@ source module, parakeet_mlx.from_pretrained, which the function-local import
 re-reads on every call.
 """
 
+import contextlib
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -162,10 +163,11 @@ def frozen_clock(monkeypatch):
         last = [ticks[-1]]
 
         def monotonic() -> float:
-            try:
+            # suppress, not try/except/pass: running past the end of the tick
+            # list means the test asked for more clock reads than it scripted,
+            # and holding the last value is the intended behaviour.
+            with contextlib.suppress(StopIteration):
                 last[0] = next(it)
-            except StopIteration:
-                pass
             return last[0]
 
         monkeypatch.setattr("deixis.transcribe.time.monotonic", monotonic)

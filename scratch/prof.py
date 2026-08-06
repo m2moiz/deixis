@@ -1,10 +1,12 @@
 """Three timed variants on the same audio, to locate the regression."""
-import time, json, sys
+import time
 from pathlib import Path
+
+import mlx.core as mx
 from parakeet_mlx import from_pretrained
 from parakeet_mlx.audio import load_audio
-from deixis import chunking, checkpoint
-import mlx.core as mx
+
+from deixis import checkpoint, chunking
 
 AUDIO = Path("scratch/clip360.wav")
 m = from_pretrained("mlx-community/parakeet-tdt-0.6b-v3")
@@ -13,7 +15,9 @@ audio = load_audio(AUDIO, rate, mx.bfloat16)
 print(f"audio samples={len(audio)} ({len(audio)/rate:.0f}s)", flush=True)
 
 def timed(label, fn):
-    t = time.monotonic(); r = fn(); el = time.monotonic() - t
+    t = time.monotonic()
+    r = fn()
+    el = time.monotonic() - t
     print(f"{label:38s} {el:7.1f}s", flush=True)
     return r, el
 

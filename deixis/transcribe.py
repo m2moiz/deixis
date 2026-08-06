@@ -11,16 +11,17 @@ trust.
 from __future__ import annotations
 
 __all__ = [
-    "DEFAULT_MODEL",
     "CHUNK_S",
+    "DEFAULT_MODEL",
     "OVERLAP_S",
     "Progress",
+    "main",
     "render_bar",
     "transcribe",
-    "main",
 ]
 
 import json
+import logging
 import sys
 import tempfile
 import time
@@ -32,6 +33,12 @@ from pathlib import Path
 # would shadow the module inside the function body.
 from deixis import media as media_mod
 from deixis.atomic import atomic_write_text
+
+# Module logger, not print: transcribe() is the import surface the frame-
+# retrieval half will call, and a library that writes to stderr unasked is a
+# library that cannot be embedded. main() attaches the stderr handler, so the
+# CLI behaves exactly as before.
+logger = logging.getLogger("deixis.transcribe")
 
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
@@ -45,6 +52,8 @@ OVERLAP_S = 15.0
 
 @dataclass
 class Progress:
+    """One sample of how far a transcription has got, and how fast."""
+
     audio_done_s: float
     audio_total_s: float
     elapsed_s: float
@@ -56,6 +65,7 @@ class Progress:
 
     @property
     def fraction(self) -> float:
+        """Share of the audio transcribed so far, 0.0 when the total is unknown."""
         return self.audio_done_s / self.audio_total_s if self.audio_total_s else 0.0
 
     @property
@@ -70,6 +80,7 @@ class Progress:
 
     @property
     def eta_s(self) -> float | None:
+        """Seconds of wall clock left at the current speed, or None if not moving yet."""
         if self.speed <= 0:
             return None
         return (self.audio_total_s - self.audio_done_s) / self.speed
@@ -85,6 +96,7 @@ def _clock(seconds: float | None) -> str:
 
 
 def render_bar(p: Progress, state: str, width: int = 24) -> str:
+    """Render one progress line: phase, bar, audio clocks, speed and ETA."""
     filled = int(p.fraction * width)
     bar = "#" * filled + "-" * (width - filled)
     return (
@@ -185,13 +197,15 @@ def _label_speakers(
         # Named on stderr rather than swallowed: the transcript is correct, but
         # a user who asked for speaker labels and silently got none would have
         # no way to tell that from a recording with one speaker.
-        print(f"diarization skipped: {exc}", file=sys.stderr)
+        logger.warning("diarization skipped: %s", exc)
         return payload
 
     speakers = label_sentences(payload["sentences"], result.turns)
     labelled = _with_speakers(
         payload,
-        [_with_speaker(s, k) for s, k in zip(payload["sentences"], speakers)],
+        # strict=True: a length mismatch between sentences and their labels is a
+        # merge bug, and silently truncating to the shorter one would hide it.
+        [_with_speaker(s, k) for s, k in zip(payload["sentences"], speakers, strict=True)],
         result.labels,
         result.provenance,
     )
@@ -302,10 +316,10 @@ def transcribe(
             found = read_checkpoint(ckpt_path, fp)
             if found is not None:
                 skip_before, start_tokens = found
-                print(
-                    f"resuming from {_clock(skip_before / rate)} "
-                    f"({len(start_tokens)} tokens banked)",
-                    file=sys.stderr,
+                logger.info(
+                    "resuming from %s (%d tokens banked)",
+                    _clock(skip_before / rate),
+                    len(start_tokens),
                 )
         else:
             ckpt_path.unlink(missing_ok=True)
@@ -389,7 +403,24 @@ def transcribe(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI: parse args, transcribe, and report progress on stderr.
+
+    Returns:
+        A process exit code -- 0 on success, 1 if the media could not be read.
+    """
     import argparse
+
+    # The CLI is the one caller allowed to decide where log records go. A bare
+    # handler on our own logger rather than basicConfig(): basicConfig is a
+    # no-op once the root logger already has handlers, which is exactly the
+    # case under pytest, and a gate that silently does nothing is the failure
+    # this whole effort exists to remove. format is the message alone so the
+    # output is byte-identical to the prints these calls replaced.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
     ap = argparse.ArgumentParser(description="Transcribe media to a timestamped index.")
     ap.add_argument("media", type=Path, help="video or audio file; a .mov is the normal case")

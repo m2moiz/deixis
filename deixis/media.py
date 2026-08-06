@@ -14,13 +14,13 @@ build banner with the actual diagnosis buried in it.
 from __future__ import annotations
 
 __all__ = [
-    "MediaError",
-    "FFmpegNotFound",
-    "NoAudioStream",
     "AudioStream",
-    "probe",
-    "needs_conversion",
+    "FFmpegNotFound",
+    "MediaError",
+    "NoAudioStream",
     "extract_audio",
+    "needs_conversion",
+    "probe",
 ]
 
 import json
@@ -37,15 +37,17 @@ class MediaError(RuntimeError):
 
 
 class FFmpegNotFound(MediaError):
-    pass
+    """ffmpeg or ffprobe is not on PATH."""
 
 
 class NoAudioStream(MediaError):
-    pass
+    """The file opened, but carries no audio track to transcribe."""
 
 
 @dataclass(frozen=True)
 class AudioStream:
+    """What ffprobe reports about the one audio stream we intend to read."""
+
     codec_name: str
     sample_rate: int
     channels: int

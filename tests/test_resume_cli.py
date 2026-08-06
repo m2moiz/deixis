@@ -8,6 +8,7 @@ a test nobody observes.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -107,7 +108,7 @@ def test_no_resume_ignores_an_existing_checkpoint(
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
 def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
-    chunked_audio_path: Path, tmp_path: Path, monkeypatch, capsys
+    chunked_audio_path: Path, tmp_path: Path, monkeypatch, capsys, caplog
 ) -> None:
     """The failure a wav-only suite cannot see.
 
@@ -167,11 +168,16 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
         return original(model, audio_data, **kwargs)
 
     monkeypatch.setattr(chunking, "transcribe_chunked", spy)
+    caplog.set_level(logging.INFO, logger="deixis.transcribe")
     transcribe(mov, out, diarize=False)
 
     assert resumed_from == [first_next_start], (
         f"resumed from {resumed_from}, expected the banked {first_next_start}"
     )
-    assert "resuming from" in capsys.readouterr().err
+    # caplog, not capsys: the resume line is logger.info now, and only main()
+    # attaches the stderr handler -- this test calls transcribe() in-process.
+    # The assertion itself is load-bearing and stays: it is the only check that
+    # the run announced a resume rather than silently starting over.
+    assert "resuming from" in caplog.text
     assert not ckpt.exists()
     assert json.loads(out.read_text())["sentences"]

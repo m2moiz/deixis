@@ -45,7 +45,7 @@ def test_zero_total_yields_no_fraction_and_no_eta():
 
 
 def test_eta_is_none_before_any_audio_is_done():
-    """speed == 0 must short-circuit; `speed < 0` instead of `<= 0` divides by zero."""
+    """Speed == 0 must short-circuit; `speed < 0` instead of `<= 0` divides by zero."""
     p = Progress(audio_done_s=0.0, audio_total_s=100.0, elapsed_s=5.0)
     assert p.speed == 0.0
     assert p.eta_s is None
