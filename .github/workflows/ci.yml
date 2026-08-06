@@ -36,6 +36,15 @@ jobs:
       # importlib.metadata.version("senko"), which needs real distribution
       # metadata and raises PackageNotFoundError. Observed locally on
       # 2026-08-06 when a plain `uv sync` silently uninstalled senko's tree.
+      # ffmpeg is NOT on the macos-14-arm64 runner image. Without it,
+      # tests/test_media.py skips at module level and two more tests skip
+      # individually -- 14 in total, and the ENTIRE ffmpeg/ingestion boundary
+      # goes unexercised while the run still reports success. Observed on the
+      # first green run: "102 passed, 14 skipped" against 116 locally.
+      # A skip that looks like a pass is the exact failure this project exists
+      # to remove, so install it rather than accept the gap.
+      - run: brew install ffmpeg
+
       - run: uv sync --dev --extra diarize
 
       # From PyPI rather than a third-party action or a piped install script.
@@ -53,3 +62,14 @@ jobs:
       # deselected by the marker, which shows in the summary line as a count.
       # The slow lane's observer is `just verify`, run locally at session close.
       - run: just check
+
+      # A green `just check` is not enough on its own: a skipped test and a
+      # passing test look identical in an exit code. Assert the count so a
+      # missing system dependency cannot quietly shrink the suite again.
+      - name: no test may silently skip
+        run: |
+          uv run pytest -q 2>&1 | tail -3 | tee /tmp/summary
+          grep -qE '^116 passed, 11 deselected' /tmp/summary || {
+            echo "::error::fast lane is not 116 passed / 11 deselected -- something skipped"
+            exit 1
+          }
