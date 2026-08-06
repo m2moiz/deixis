@@ -17,6 +17,7 @@ diarize = [
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.7.0",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -77,3 +78,28 @@ convention = "google"
 # scratch/*.py is tracked code (working probes, not shipped), so ruff lints it.
 # Fix the mechanical ones; ignore the classes that do not matter in a probe.
 "scratch/**" = ["ANN", "D", "ARG", "B905", "E501", "SIM115", "PTH123"]
+
+[tool.mutmut]
+# Keys verified against mutmut 3.7.0's own configuration.py, not against a
+# plan or a docs page: `paths_to_mutate` and `tests_dir` are 2.x names that
+# 3.x still reads but warns about. These are the current ones.
+source_paths = ["deixis"]
+
+# Scoped to the three PURE modules. They are ~150 statements, they are where
+# the audit's covered-but-unasserted defects actually lived, and their tests
+# run entirely on fakes.
+#
+# chunking.py is deliberately EXCLUDED even though it is pure. Its exercising
+# tests (tests/test_chunking.py) are all slow-marked, so under the fast lane
+# transcribe_chunked has zero tests running against it -- every mutant there
+# would "survive" by construction and the report would be misleading for a
+# quarter of its own scope. transcribe.py and media.py are excluded for the
+# ordinary reason: their tests are integration-shaped and mutants time out
+# rather than inform.
+only_mutate = ["deixis/merge.py", "deixis/checkpoint.py", "deixis/atomic.py"]
+
+# Explicit, not inherited. Whether mutmut's fork-based runner picks up pytest's
+# addopts is documented nowhere either way, and the whole tractability argument
+# rests on each mutant being checked by a seconds-long suite rather than a
+# 20-minute one. State it rather than hope.
+pytest_add_cli_args = ["-m", "not slow", "-p", "no:randomly", "-x", "-q"]

@@ -150,3 +150,20 @@ def test_fsync_is_off_by_default_and_reaches_the_file_when_asked(
 
     atomic_write_text(tmp_path / "b.json", "{}", fsync=True)
     assert len(synced) == 1
+
+
+def test_the_file_is_written_as_utf8_whatever_the_locale_is(tmp_path: Path) -> None:
+    """encoding="utf-8" explicitly, not the platform default.
+
+    Two mutants survived -- `encoding=None` and the argument dropped -- because
+    on this machine the locale default IS utf-8, so a round-trip through
+    read_text() cannot tell the difference. Asserting on the raw BYTES can.
+
+    A transcript carries whatever the speaker said; a checkpoint carries the
+    tokens. Both are non-ASCII the moment a name or an accent appears, and a
+    file written in a different codec is one another machine cannot read back.
+    """
+    p = tmp_path / "out.json"
+    atomic_write_text(p, "café — ünïcode ✓")
+
+    assert p.read_bytes() == "café — ünïcode ✓".encode()

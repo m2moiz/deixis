@@ -29,3 +29,7 @@ dist/
 # but they hardcode absolute interpreter paths for this machine and named
 # another project on disk. They are not source; they do not belong in a repo.
 .beads/hooks/
+
+# mutmut writes its mutants and results here.
+mutants/
+.mutmut-cache

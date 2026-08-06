@@ -12,9 +12,11 @@ import json
 import struct
 from pathlib import Path
 
+import pytest
 from parakeet_mlx.alignment import AlignedToken
 
 from deixis.checkpoint import (
+    SCHEMA,
     Fingerprint,
     checkpoint_path_for,
     fingerprint,
@@ -238,3 +240,57 @@ def test_integer_valued_token_numbers_are_accepted(tmp_path: Path) -> None:
     assert next_start == 44
     assert tokens[0].start == 0.0
     assert tokens[0].duration == 1.0
+
+
+# --- gaps mutation testing found ---------------------------------------------
+
+
+def test_the_fingerprint_records_every_field_it_claims_to(tmp_path: Path) -> None:
+    """Each field is actually populated, not merely present.
+
+    Six mutants -- schema, total_samples, model_id, parakeet_version, chunk_s,
+    overlap_s each replaced by None -- survived. `test_every_fingerprint_field
+    _invalidates` could not see them: it compares two fingerprints built by the
+    SAME function, so a field nulled on both sides still differs wherever it
+    differed before. Only an absolute assertion catches a field that stopped
+    being read.
+    """
+    source = tmp_path / "recording.mov"
+    source.write_bytes(b"x")
+
+    fp = fingerprint(source, total_samples=70_832_448, model_id="m",
+                     chunk_s=120.0, overlap_s=15.0)
+
+    assert fp.schema == SCHEMA
+    assert fp.total_samples == 70_832_448
+    assert fp.model_id == "m"
+    assert fp.chunk_s == 120.0
+    assert fp.overlap_s == 15.0
+    # Not pinned to a literal: it moves when the dependency does, and the point
+    # is that SOMETHING was read, not which release is installed.
+    assert fp.parakeet_version and fp.parakeet_version != "None"
+
+
+def test_the_checkpoint_is_written_with_fsync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """fsync=True at the call site, not just available on the writer.
+
+    Three mutants -- fsync=False, fsync=None, and the argument dropped entirely
+    -- survived, and no test could have caught them: whether data reached the
+    platter is invisible to a process that then reads its own page cache.
+    Asserting on the CALL is the only cheap witness.
+
+    It is worth having. Losing a checkpoint to a power cut costs minutes of GPU
+    time, which is the entire reason the argument is there.
+    """
+    seen: list[bool] = []
+
+    def spy(path: Path, text: str, *, fsync: bool = False) -> None:
+        seen.append(fsync)
+        path.write_text(text)
+
+    monkeypatch.setattr("deixis.checkpoint.atomic_write_text", spy)
+    write_checkpoint(tmp_path / "out.json.ckpt", FP, next_start=44, tokens=TOKENS)
+
+    assert seen == [True]

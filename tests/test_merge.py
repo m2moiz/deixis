@@ -105,7 +105,7 @@ def test_an_empty_turn_list_is_refused_rather_than_answered() -> None:
     # The caller (deixis.diarize) turns empty segments into
     # DiarizationUnavailable; if one ever reaches here, say so loudly rather
     # than inventing a speaker.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cannot index an empty turn list$"):
         TurnIndex([])
 
 
@@ -177,3 +177,98 @@ def test_the_real_inter_turn_gap_makes_tokens_abstain() -> None:
     assert index.speaker_at(74.0) is None
     assert index.speaker_at(73.5) == 1
     assert index.speaker_at(74.5) == 0
+
+
+# --- gaps mutation testing found ---------------------------------------------
+#
+# Every test below kills a mutant that SURVIVED the first mutmut run. Each line
+# they cover was already at 98% coverage: it executed, and nothing asserted on
+# what it produced. That gap is the entire reason mutation testing is in this
+# project.
+
+
+def test_the_nearest_turn_is_measured_from_whichever_end_is_closer() -> None:
+    """`_distance` SUBTRACTS; a sign slip on either operand still looks fine.
+
+    Mutants `abs(t + turn.start)` and `abs(t + turn.end)` survived the first
+    mutmut run. They are invisible unless the corrupted term is the one `min`
+    would otherwise have picked -- so each case below is built so that it is.
+    """
+    # t sits 5s BEFORE a turn's start, so the start term is the minimum. A
+    # `t + start` slip inflates it to 195 and hands the answer to the other turn.
+    index = TurnIndex([Turn(0.0, 85.0, 1), Turn(100.0, 110.0, 0)])
+    assert index.nearest_speaker(95.0) == 0
+
+    # Mirrored: t sits 1s AFTER a turn's end, so the end term is the minimum.
+    # A `t + end` slip inflates it to 171 and the answer flips.
+    index = TurnIndex([Turn(0.0, 85.0, 1), Turn(120.0, 130.0, 0)])
+    assert index.nearest_speaker(86.0) == 1
+
+
+def test_a_time_inside_a_turn_is_zero_distance_from_it() -> None:
+    """The early return is 0.0, not "small".
+
+    Mutant `return 1.0` survived: it only shows when a competing turn is nearer
+    than 1s, which no existing test had. Turns 0.6s apart do.
+    """
+    index = TurnIndex([Turn(0.0, 10.0, 0), Turn(10.6, 20.0, 1)])
+    # 9.9 is inside turn 0 (distance 0) and 0.7 from turn 1. At a fake distance
+    # of 1.0 the neighbour wins.
+    assert index.nearest_speaker(9.9) == 0
+
+
+def test_a_time_exactly_on_a_turn_edge_is_inside_that_turn() -> None:
+    """`turn.start <= t <= turn.end` -- both bounds are inclusive, deliberately.
+
+    Mutants: `start < t` and `t < end`. A token landing exactly on an edge is
+    not a hypothetical; parakeet emits times that coincide with senko's
+    boundaries, and pushing such a token to the neighbouring turn is a
+    misattribution the vote then inherits.
+    """
+    turns = [Turn(0.0, 10.0, 0), Turn(50.0, 60.0, 1)]
+    index = TurnIndex(turns)
+
+    # Exactly on turn 0's start, and exactly on its end. Both are distance 0
+    # from turn 0, so neither may be answered with speaker 1.
+    assert index.nearest_speaker(0.0) == 0
+    assert index.nearest_speaker(10.0) == 0
+
+
+def test_the_last_turn_is_reachable_and_nothing_past_it_is() -> None:
+    """`0 <= j < len(self._turns)` -- the guard against indexing off the end.
+
+    Mutant: `j <= len(...)`, which lets the candidate list hold an index one
+    past the last turn. It survived because no test asked for a time after the
+    final turn, which is exactly where that index gets built.
+    """
+    turns = [Turn(0.0, 10.0, 0), Turn(20.0, 30.0, 1)]
+    index = TurnIndex(turns)
+
+    # Well past the end: the only valid answer is the last turn's speaker, and
+    # a candidate index of len(turns) would raise IndexError instead.
+    assert index.nearest_speaker(999.0) == 1
+
+
+def test_every_token_carries_exactly_one_vote() -> None:
+    """`votes[speaker] += 1` -- one token, one vote, unweighted.
+
+    Mutant: `+= 2`. It survived every existing test because doubling every vote
+    equally never changes who wins. It changes the answer only when the two
+    sides are unequal AND a tie-break is in play, which is the case built here.
+
+    This matters more than its size suggests: the token vote is the algorithm
+    the README documents as the reason sentences are labelled the way they are.
+    """
+    turns = [Turn(0.0, 10.0, 0), Turn(10.0, 20.0, 1)]
+    index = TurnIndex(turns)
+
+    # Two tokens for speaker 0, one for speaker 1: 2 vs 1 either way, so the
+    # winner is stable...
+    assert label_sentence(sentence(1.0, 2.0, 11.0), index) == 0
+
+    # ...but a genuine tie must stay a tie and fall to the earliest token. If
+    # each token voted twice, this would still be 4 vs 4 -- so the assertion
+    # that actually pins the weight is that the count itself is odd-sensitive:
+    # three tokens against one cannot be reached by doubling two against one.
+    assert label_sentence(sentence(1.0, 2.0, 3.0, 11.0), index) == 0
+    assert label_sentence(sentence(1.0, 11.0, 12.0, 13.0), index) == 1

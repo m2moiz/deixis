@@ -38,3 +38,15 @@ check: typecheck
 verify: typecheck
     uv run ruff check .
     uv run pytest -m "slow or not slow" --cov=deixis --cov-report=term-missing:skip-covered
+
+# Mutation testing over the three pure modules. Coverage proves a line ran;
+# this proves the suite would notice if it stopped. Survivors are the
+# deliverable -- triage them against docs/mutmut-triage.md, which records why
+# each accepted one cannot be killed. Chasing 100% is how this becomes busywork.
+#
+# mutmut caches by source hash and does NOT notice new TESTS, so a rerun after
+# writing a killing test needs the mutants/ tree removed first.
+mutate:
+    rm -rf mutants
+    uv run mutmut run
+    uv run mutmut results
