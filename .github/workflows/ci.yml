@@ -1,0 +1,50 @@
+name: ci
+
+# DORMANT AS COMMITTED. This repository has no git remote (`git remote -v` is
+# empty), so nothing here has ever run. Every step below was executed locally
+# in sequence and is green, and the action versions were checked against their
+# published releases -- but "expected to pass" is the strongest honest claim
+# available, and the first real run is the observation. A bead tracks watching
+# it.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    # macos-14 is the Apple Silicon runner. parakeet-mlx requires MLX, which is
+    # Metal-backed, so a Linux runner cannot even import the package. Confirmed
+    # still current and not deprecated.
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+
+      # --extra diarize is REQUIRED, not optional polish. Extras are opt-in, so
+      # a bare `uv sync` leaves senko out -- and three tests in
+      # tests/test_diarize.py then FAIL rather than skip: the bare ModuleType
+      # stand-in satisfies `import senko`, but diarize.py's _provenance() calls
+      # importlib.metadata.version("senko"), which needs real distribution
+      # metadata and raises PackageNotFoundError. Observed locally on
+      # 2026-08-06 when a plain `uv sync` silently uninstalled senko's tree.
+      - run: uv sync --dev --extra diarize
+
+      # From PyPI rather than a third-party action or a piped install script.
+      # rust-just 1.58.0 publishes a macosx_11_0_arm64 wheel, checked against
+      # the package index.
+      - run: uv tool install rust-just
+
+      # ONE command, the same one a human and a coding agent run locally, so a
+      # green here means what a green there means. Anything CI checks that
+      # `just check` does not would be a way for the two to drift.
+      #
+      # This is the FAST lane. The slow tests need ~2.4 GB of model weights and
+      # 146 MB of reference audio that lives in gitignored scratch/, so they
+      # cannot run here at all -- and they do not silently pass either: they are
+      # deselected by the marker, which shows in the summary line as a count.
+      # The slow lane's observer is `just verify`, run locally at session close.
+      - run: just check
