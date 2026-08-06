@@ -1,5 +1,5 @@
 set -e
-cd /Users/moiz/Documents/code/deixis
+cd "$(git rev-parse --show-toplevel)"
 rm -f scratch/gate_full.json scratch/gate_resumed.json scratch/gate_resumed.json.ckpt
 echo "=== 1. uninterrupted baseline ==="
 uv run python -m deixis.transcribe scratch/meeting.wav -o scratch/gate_full.json --no-resume 2>&1 | tail -1

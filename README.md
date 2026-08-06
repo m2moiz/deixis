@@ -39,7 +39,7 @@ directory directly — **verified, no extra model download**:
 
 ```python
 import onnx_asr
-p = "/Users/moiz/Library/Application Support/com.pais.handy/models/parakeet-tdt-0.6b-v3-int8"
+p = "~/Library/Application Support/com.pais.handy/models/parakeet-tdt-0.6b-v3-int8"
 model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", p, quantization="int8").with_timestamps()
 result = model.recognize("audio.wav")
 result.tokens, result.timestamps   # sub-second token alignment
