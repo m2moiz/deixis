@@ -285,6 +285,30 @@ def _run_ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args], check=True)
 
 
+def _mean_grey(image: Path) -> float:
+    """Average brightness of a still image, read back through ffmpeg.
+
+    Not extract_tile_grid: that runs an `fps` filter, and a still has no
+    duration for it to sample, so it returns zero frames. Found by running it.
+    """
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(image),
+         "-vf", "scale=8:8,format=gray", "-f", "rawvideo", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return float(np.frombuffer(out, dtype=np.uint8).mean())
+
+
+def _dimensions(image: Path) -> tuple[int, int]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(image)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    w, h = out.split("x")
+    return int(w), int(h)
+
+
 @pytest.fixture
 def static_video(tmp_path: Path) -> Path:
     """6 seconds of one unchanging colour."""
@@ -381,6 +405,62 @@ def test_extract_tile_grid_rejects_nonsense(
     args: dict[str, float] = {"fps": 1.0, "width": 8, "height": 6, **kwargs}
     with pytest.raises(ValueError, match=match):
         media.extract_tile_grid(static_video, **args)  # pyright: ignore[reportArgumentType]
+
+
+@needs_ffmpeg
+def test_extract_frame_writes_the_frame_at_that_second(cut_video: Path, tmp_path: Path) -> None:
+    """The index is only worth having if what it points at can be opened.
+
+    The fixture is black for 0-4s and near-white for 4-8s, so a seek that
+    landed in the wrong segment shows up as a brightness the assertion below
+    can catch -- where "a file was written" could not.
+    """
+    early = media.extract_frame(cut_video, 1.0, tmp_path / "early.png")
+    late = media.extract_frame(cut_video, 6.0, tmp_path / "late.png")
+    assert _mean_grey(early) < 64 < 192 < _mean_grey(late)
+
+
+@needs_ffmpeg
+def test_extract_frame_can_scale(cut_video: Path, tmp_path: Path) -> None:
+    dest = media.extract_frame(cut_video, 1.0, tmp_path / "small.png", width=64)
+    assert _dimensions(dest) == (64, 48)  # the fixture is 320x240
+
+
+@needs_ffmpeg
+def test_a_timestamp_past_the_end_is_an_error_not_an_empty_file(
+    cut_video: Path, tmp_path: Path
+) -> None:
+    """A seek past the end fails deep in the encoder and writes nothing.
+
+    Without the `dest.exists()` half of the check, a caller would get a path
+    back and discover the absence later, somewhere with no context.
+    """
+    dest = tmp_path / "nope.jpg"
+    with pytest.raises(media.MediaError, match="past the end"):
+        media.extract_frame(cut_video, 9999.0, dest)
+    assert not dest.exists()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [({"t": -1.0}, "t must be non-negative"), ({"width": 0}, "width must be positive")],
+)
+@needs_ffmpeg
+def test_extract_frame_rejects_nonsense(
+    cut_video: Path, tmp_path: Path, kwargs: dict[str, float], match: str
+) -> None:
+    args: dict[str, float] = {"t": 1.0, **kwargs}
+    t = args.pop("t")
+    with pytest.raises(ValueError, match=match):
+        media.extract_frame(cut_video, t, tmp_path / "x.jpg", **args)  # pyright: ignore[reportArgumentType]
+
+
+@needs_ffmpeg
+def test_extract_frame_refuses_an_audio_only_file(tmp_path: Path) -> None:
+    wav = tmp_path / "a.wav"
+    _run_ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=2", str(wav))
+    with pytest.raises(media.NoVideoStream):
+        media.extract_frame(wav, 1.0, tmp_path / "x.jpg")
 
 
 @needs_ffmpeg

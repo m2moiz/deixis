@@ -20,7 +20,9 @@ __all__ = [
     "NoAudioStream",
     "NoVideoStream",
     "extract_audio",
+    "extract_frame",
     "extract_tile_grid",
+    "has_video",
     "needs_conversion",
     "probe",
 ]
@@ -244,6 +246,73 @@ def has_video(media: Path) -> bool:
         raise MediaError(f"ffprobe could not read {media}: {proc.stderr.strip()}")
     info: dict[str, Any] = json.loads(proc.stdout)
     return bool(info.get("streams"))
+
+
+def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None) -> Path:
+    """Write the frame at `t` seconds of `media` to `dest`.
+
+    The other half of the bargain the whole design rests on: the transcript and
+    its marks are an index, and an index is only worth having if you can open
+    what it points at. Nothing is precomputed and no frames are cached -- the
+    video is already on disk and seeking into it is cheap, so a frame costs
+    nothing until somebody asks for one.
+
+    Args:
+        media: The video to seek into.
+        t: Seconds from the start. Must be within the file.
+        dest: Where to write. The suffix picks the format; `.jpg` is the one a
+            vision model wants.
+        width: Scale to this many pixels wide, preserving aspect. None keeps
+            the source resolution -- 2940x1912 is ~776 KB as a JPEG, which is
+            over what most vision APIs want per image.
+
+    Returns:
+        `dest`.
+
+    Raises:
+        NoVideoStream: if `media` has no picture.
+        MediaError: if ffmpeg fails, or succeeds without writing a frame.
+        ValueError: if `t` is negative or `width` is not positive.
+    """
+    if t < 0:
+        raise ValueError(f"t must be non-negative, got {t}")
+    if width is not None and width <= 0:
+        raise ValueError(f"width must be positive, got {width}")
+    if not has_video(media):
+        raise NoVideoStream(f"{media} has no video stream, so there is no frame at {t}s.")
+
+    cmd = [
+        _tool("ffmpeg"),
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
+        # -ss BEFORE -i is the fast form: ffmpeg seeks the container instead of
+        # decoding from zero, which on a 33-minute file is the difference
+        # between milliseconds and half a minute. It has been frame-accurate
+        # since 2.1 -- the old "input seeking is approximate" advice predates
+        # that and would cost a full decode to avoid a problem that is gone.
+        "-ss", str(t),
+        "-i", str(media),
+        "-frames:v", "1",
+        "-q:v", "2",
+    ]
+    if width is not None:
+        cmd += ["-vf", f"scale={width}:-2"]  # -2, not -1: keeps the height even
+    cmd.append(str(dest))
+
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    # Both conditions, not just the exit code. A seek past the end of the file
+    # fails deep in the encoder -- observed exit 234 with "Nothing was written
+    # into output file" buried under nine lines of thread teardown -- and the
+    # useful diagnosis is the missing file, not that log.
+    if proc.returncode != 0 or not dest.exists():
+        raise MediaError(
+            f"ffmpeg could not extract a frame at {t}s from {media} "
+            f"(exit {proc.returncode}):\n{proc.stderr.strip()}\n"
+            f"The usual cause is a timestamp past the end of the recording."
+        )
+    return dest
 
 
 def extract_tile_grid(
