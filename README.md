@@ -21,12 +21,12 @@ in the meeting and, as text, it is worthless. The referent was on screen.
 | | |
 |---|---|
 | **Transcript half** | working — ingestion, chunked ASR, resume, optional speaker labels |
-| **Retrieval half** | **not built.** No frame extraction, no vision model. See [Roadmap](#roadmap) |
+| **Visual marks** | working — the moments the picture changed, written into the transcript. No description attached |
+| **Frame description** | **not built**, and now blocked on a *measured* finding rather than an unmeasured one. See [Roadmap](#roadmap) |
 
-So today deixis is a resumable, observable transcriber whose output is designed
-to be indexed against. The half that answers *"see this column here"* is the
-work ahead, and it is blocked on a measurement, not on code — see
-[Roadmap](#roadmap).
+So today deixis is a resumable, observable transcriber that also tells you
+*when* to look. The half that says *what* you would see — answering "see this
+column here" — is the work ahead.
 
 ---
 
@@ -90,6 +90,30 @@ chunk. Re-running the same command resumes from it; a changed model, source
 file, or chunk geometry invalidates it automatically and the run starts over
 rather than reusing tokens that describe something else.
 
+### Visual marks
+
+A second pass adds the timestamps where the picture changed most. It is
+separate because the transcript arrives at ~13x realtime and this decodes every
+sampled frame at ~10x, so coupling them would make the fast half wait:
+
+```bash
+uv run python -m deixis.frames recording.mov -t transcript.json
+```
+
+| Flag | |
+|---|---|
+| `-t, --transcript PATH` | the transcript to add marks to (required) |
+| `-o, --out PATH` | write elsewhere instead of overwriting `--transcript` |
+| `--budget N` | how many marks to keep (default 150) |
+| `--min-gap SECONDS` | how far apart they must be (default 5) |
+| `--fps N` | frames sampled per second of video (default 1) |
+| `--delta N` | grey levels a tile must move to count (default 8) |
+
+`--budget` rather than a sensitivity threshold is the one design decision worth
+knowing about, and it is not a preference — three threshold-based detectors were
+built and measured against a real recording before this one, and all three
+failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
+
 ## Output
 
 ```jsonc
@@ -107,7 +131,12 @@ rather than reusing tokens that describe something else.
       "text": " See this column here.",
       "tokens": [{"t": 12.34, "w": " See"}, {"t": 12.51, "w": " this"}]
     }
-  ]
+  ],
+
+  // added by `python -m deixis.frames`; absent until that pass has run
+  "marks": [{"t": 417.0, "score": 2841}],
+  "marks_meta": {"budget": 150, "min_gap_s": 5.0, "fps": 1.0, "delta": 8,
+                 "grid": [128, 84], "frames_sampled": 1997, "source": "..."}
 }
 ```
 
@@ -119,6 +148,11 @@ Two things about this shape are deliberate:
   invites you to treat it as an identity.
 - **`diarization` is absent when the pass did not run.** Without that, "no
   diarization" and "diarization found one speaker" are the same document.
+- **`marks` sits beside `sentences`, not inside them.** A mark is a fact about
+  the video at a time, not about a sentence; nesting it in whichever sentence
+  happens to span that second would invent a relationship nothing observed.
+  `marks_meta` travels with it for the same reason `diarization` does — marks
+  from a budget of 150 and marks from a budget of 20 are different documents.
 
 ## Development
 
@@ -139,6 +173,8 @@ can fail. That cost is the point — see [docs/tooling-gaps.md](docs/tooling-gap
 | [docs/tooling-gaps.md](docs/tooling-gaps.md) | the practices and tools this project is built to, written out of an audit where five defects shipped past a green suite |
 | [docs/resume-gate-design.md](docs/resume-gate-design.md) | how you test a resume that silently restarts, given it produces byte-identical output |
 | [docs/mutmut-triage.md](docs/mutmut-triage.md) | every surviving mutant and why it is accepted |
+| [docs/visual-marks.md](docs/visual-marks.md) | the three change detectors that were built and measured before this one, and why each failed |
+| [docs/vlm-legibility.md](docs/vlm-legibility.md) | whether a small local VLM can read a screen frame. Measured: not this one |
 
 ---
 
@@ -161,11 +197,17 @@ video length.
 
 This inverts the usual pipeline. Scene-detect-then-OCR-everything is a **push**
 design: extract all visual content upfront, pay for it whether or not any of it
-mattered, then try to compress. It also drowns in false positives — cursor
-movement and scrolling trip content-based scene detection constantly on a
-screen-share. Transcript-driven retrieval never enumerates scenes at all, and the
-"which of these 60 frames mattered?" judgement is answered by the speaker, out
-loud, at a known timestamp.
+mattered, then try to compress.
+
+The false-positive half of that argument turned out to be **measurably true** —
+a perceptual-hash detector fired on cursor movement alone on a real recording,
+which is exactly what was predicted here before anyone had run one. The
+conclusion drawn from it was too strong, though. Visual marks *do* enumerate the
+video, and cheaply: ranking every sampled frame costs 33 ms of arithmetic on top
+of a decode, and produces 150 timestamps and no descriptions. Enumerating is not
+what makes the push design expensive; **describing** everything you enumerated
+is. Marks are a table of contents, and the transcript still decides which
+entries are worth opening.
 
 ### Decisions made so far
 
@@ -219,11 +261,15 @@ inventing invalidation and leaving 135 MB files next to the user's recordings.
 Anyone who wants the wav can extract it by hand and pass it — the conversion
 step is skipped when the input is already mono `pcm_s16le` at the model's rate.
 
-**Vision, not OCR — `mlx-vlm` + Qwen2.5-VL-7B-Instruct (4-bit, ~5-6GB RAM).**
-Qwen2.5-VL leads DocVQA (96.4% at 72B, near the ~98.1% human ceiling) and scores
-89.5% on ChartQA. `mlx-vlm` is very actively maintained. Fallback for missed
-chart/table detail is Qwen3-VL-30B-A3B-Thinking at ~18-20GB, which needs a 64GB
-machine.
+**Vision, not OCR — but which vision model is now an open question.**
+The plan named Qwen2.5-VL-7B-Instruct on `mlx-vlm`, on the strength of published
+DocVQA and ChartQA scores. That model has still never been run here. What *has*
+been run is `gemma-4-e2b-it-4bit`, on five frames from a real recording with
+ground truth written down first: 47% recall and 18 fabricated strings, at
+18-22 s per image. Benchmark leadership on document QA did not survive contact
+with a screenshot of an inbox — see
+[docs/vlm-legibility.md](docs/vlm-legibility.md) — so the model choice is
+deliberately reopened rather than carried forward.
 
 **Speaker labels: senko, optional, and wrong in ways worth naming.**
 Diarization is an extra — `uv sync --extra diarize` — not a dependency. It pulls
@@ -288,30 +334,45 @@ whose ground truth is two speakers:
 
 ## Roadmap
 
-The transcript half is done. The retrieval half is not, and it is blocked on a
-**measurement rather than on code**:
+Frame *selection* is answered. Frame *description* is not.
 
-- **Frame dedup has no validated method for screen content.** Searching
-  "screencast keyframe extraction", "slide change detection", "lecture video
-  segmentation", "screen recording deduplication" turns up only generic
-  luminance-shift academic work and abandoned repos. Confirmed gap.
-  - Planned shape is two-stage: cheap pHash pre-filter, then a DINOv2 cosine
-    gate for "is this actually new information".
-  - The pHash threshold everyone cites (Hamming ≤8) is calibrated on natural
-    photos, never on text-heavy UI. Worse, pHash discards *high-frequency*
-    detail — precisely what separates two states of the same spreadsheet. Expect
-    it to under-trigger on "same doc, different cell selected".
-  - DINOv2 over CLIP because it is image-only self-supervised, so there is no
-    text-conditioning to collapse every "spreadsheet-shaped" image together. One
-    report puts DINOv2-ViT-B/14 at ~93% on document/screenshot duplicate
-    detection, ahead of CLIP. **But no published benchmark tests discrimination
-    between two different spreadsheets.** Nothing here is trustworthy until
-    measured on our own data.
-- **Therefore the first build task is an eval set**, not a feature: 50-100 hand-
-  labelled frame pairs from real recordings ("same information" / "new
-  information"). No threshold means anything without it.
+**What the selection work settled** (numbers and method in
+[docs/visual-marks.md](docs/visual-marks.md)):
+
+- The pHash worry recorded here previously was right about the symptom and
+  wrong about the direction. A 9x8 dHash did not under-trigger on "same doc,
+  different cell" — it fired on **pointer movement alone** and missed a ticked
+  checkbox, because 327x239-pixel cells resolve nothing smaller than a window
+  switch. ffmpeg's `mpdecimate`, the standard duplicate dropper, failed the
+  opposite way and kept 1997 of 1997 frames.
+- The deeper finding is that **no threshold can work**, on any detector: during
+  an active session the screen changes most seconds, so "the screen changed" is
+  not a rare event and cannot be an index. Ranking under a fixed budget replaces
+  it and needs no per-video tuning.
+- **No eval set was needed.** The plan called for 50–100 hand-labelled frame
+  pairs before anything could be trusted. A budget has no threshold to
+  calibrate, so the thing the eval set existed to justify does not exist. Two
+  synthetic controls — a static video that must yield nothing, a two-cut video
+  that must yield exactly its two cuts — pin the behaviour instead.
+- **DINOv2 was not needed either**, and the reason is cheaper than expected:
+  mean-pooling on the way down to a 128x84 grid already suppresses smooth motion
+  (webcam tiles, faces) while keeping the high-contrast edges of text and UI.
+
+**What blocks description**, now measured rather than assumed
+([docs/vlm-legibility.md](docs/vlm-legibility.md)):
+
+- `gemma-4-e2b-it-4bit` recovered 33 of 70 hand-written ground-truth strings
+  across five real frames (47%) while fabricating 18 — and the fabrications are
+  fluent, plausible UI text (`Your GPS aren't the problem`, `OpenAI Browser`),
+  which is the kind that poisons an index silently. Resolution is not the fix:
+  700 → 1600 px moved recall by one string.
+- It is also 18–22 s per image, not the ~5 s assumed from an earlier benchmark
+  whose outputs were 23–26 tokens long.
+- Untested and worth trying before concluding anything general: a larger local
+  model (`Qwen3-VL-4B`), a terse prompt with a larger token budget, and a cloud
+  VLM — none of which have been run.
 - **ColPali / ColQwen2** (late-interaction retrieval over page images, no OCR)
-  is the interesting phase-2 option, but no MLX port exists and nobody reports
+  remains the interesting alternative, but no MLX port exists and nobody reports
   running `colpali-engine` on Apple Silicon MPS. Experiment, not infrastructure.
 
 ### Prior art
@@ -327,6 +388,7 @@ are OCR-based, which is the approach this tool rejects.
 deixis/            the package
   media.py         ffmpeg ingestion, with progress and actionable errors
   transcribe.py    the CLI and the orchestration
+  frames.py        the moments the picture changed, ranked under a budget
   chunking.py      the chunk loop parakeet-mlx does not provide
   checkpoint.py    resume, and the validated boundary that reads it
   merge.py         token-vote speaker labelling

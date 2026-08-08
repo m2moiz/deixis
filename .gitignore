@@ -5,6 +5,15 @@
 scratch/*
 !scratch/*.py
 !scratch/*.sh
+# One level down too. `scratch/*` stops git descending into a subdirectory at
+# all, so a probe filed under scratch/vlm/ was silently untrackable -- the
+# exact "an untracked check is a check nobody runs" failure this block exists
+# to prevent, reappearing one directory deeper. Re-ignore the contents, then
+# carve the code back out.
+!scratch/*/
+scratch/*/*
+!scratch/*/*.py
+!scratch/*/*.sh
 
 .venv/
 __pycache__/

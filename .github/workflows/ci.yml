@@ -76,13 +76,33 @@ jobs:
       # A green `just check` is not enough on its own: a skipped test and a
       # passing test look identical in an exit code. Assert the count so a
       # missing system dependency cannot quietly shrink the suite again.
+      # An exact count stood here -- `116 passed, 11 deselected` -- and it was
+      # WRONG almost immediately. It went stale the first time a test was added
+      # and CI went red on main on 2026-08-06 reporting "something skipped" for
+      # a run with 129 passed and zero skipped. A guard that cries wolf on every
+      # legitimate addition gets muted, which would cost the real signal.
+      #
+      # So assert the INVARIANT rather than a magic number. The hazard is a
+      # skipped test looking like a passing one -- the first green run here was
+      # "102 passed, 14 skipped" with ffmpeg missing and the whole ingestion
+      # boundary unexercised. `skipped` appearing at all is that hazard, exactly,
+      # and needs no maintenance. The floor catches the other direction, a suite
+      # that shrinks; raise it when tests are added, and note that forgetting to
+      # is harmless where forgetting to bump an exact count was not.
       - name: no test may silently skip
         run: |
           # NOT `pytest -q`: addopts already carries -q, so a second one
           # makes -qq and pytest suppresses the summary line entirely --
           # the guard then fails on a run where nothing was wrong.
           uv run pytest 2>&1 | tail -3 | tee /tmp/summary
-          grep -qE '^116 passed, 11 deselected' /tmp/summary || {
-            echo "::error::fast lane is not 116 passed / 11 deselected -- something skipped"
+          # `if`, not `grep && { }`: the shell runs with -e, and a compound
+          # ending in a failed grep would abort the step on the healthy path.
+          if grep -q 'skipped' /tmp/summary; then
+            echo "::error::a test SKIPPED -- a system dependency is missing on the runner"
             exit 1
-          }
+          fi
+          passed=$(grep -oE '[0-9]+ passed' /tmp/summary | grep -oE '^[0-9]+')
+          if [ "${passed:-0}" -lt 176 ]; then
+            echo "::error::fast lane is ${passed:-no} passed, floor is 176 -- the suite shrank"
+            exit 1
+          fi

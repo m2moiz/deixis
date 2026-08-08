@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numba>=0.61",
+    # Direct since frames.py: it was already here transitively, but a module
+    # that imports it is a module that depends on it, and an indirect
+    # dependency can vanish under an upstream release with no warning.
+    "numpy>=2.0",
     "parakeet-mlx>=0.5.2",
     "pydantic>=2.13.4",
 ]
