@@ -21,7 +21,8 @@ in the meeting and, as text, it is worthless. The referent was on screen.
 | | |
 |---|---|
 | **Transcript half** | working — ingestion, chunked ASR, resume, optional speaker labels |
-| **Visual marks** | working — the moments the picture changed, written into the transcript. No description attached |
+| **Visual marks** | working — the moments the picture changed, written into the transcript. No description attached. [Measured](docs/do-marks-help.md) to be worth little on their own |
+| **Frame retrieval** | working — `media.extract_frame(video, t, dest)`. This is what actually makes a recording answerable: 5/16 → 16/16 on a blind-graded question set |
 | **Frame description** | **not built**, and now blocked on a *measured* finding rather than an unmeasured one. See [Roadmap](#roadmap) |
 
 So today deixis is a resumable, observable transcriber that also tells you
@@ -174,6 +175,7 @@ can fail. That cost is the point — see [docs/tooling-gaps.md](docs/tooling-gap
 | [docs/resume-gate-design.md](docs/resume-gate-design.md) | how you test a resume that silently restarts, given it produces byte-identical output |
 | [docs/mutmut-triage.md](docs/mutmut-triage.md) | every surviving mutant and why it is accepted |
 | [docs/visual-marks.md](docs/visual-marks.md) | the three change detectors that were built and measured before this one, and why each failed |
+| [docs/do-marks-help.md](docs/do-marks-help.md) | do the marks actually help an agent? Three arms, blind-graded: 5/16 → 7/16 → 16/16 |
 | [docs/vlm-legibility.md](docs/vlm-legibility.md) | whether a small local VLM can read a screen frame. Measured: not this one |
 
 ---

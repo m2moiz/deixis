@@ -9,6 +9,7 @@ likely to be useful.
 | [resume-gate-design.md](resume-gate-design.md) | How you test a resume that silently restarts, given that it produces byte-identical output. The design behind `scratch/resume_gate.py` and `tests/test_resume_gate.py`. |
 | [mutmut-triage.md](mutmut-triage.md) | Every mutant the test suite fails to kill, and why each one is accepted. Read this before adding a suppression. |
 | [visual-marks.md](visual-marks.md) | Three change detectors built, measured on a real recording, and thrown away — and the premise failure underneath all three. Why the shipped one has a budget and no threshold. |
+| [do-marks-help.md](do-marks-help.md) | A three-arm, blind-graded measurement of whether the marks actually improve a downstream agent. Transcript only 5/16, plus marks 7/16, plus frame access 16/16 — and the marks turn out to point at the least readable instant in their neighbourhood. |
 | [vlm-legibility.md](vlm-legibility.md) | Whether a small local VLM can read dense on-screen text. Ground truth written before the model ran; the answer is no, and the reason is hallucination rather than resolution. |
 
 ## The one idea they share
