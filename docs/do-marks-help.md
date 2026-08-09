@@ -112,13 +112,37 @@ local instability (tiles differing from the neighbouring frames)
 defined as the moments of maximum change, and a moment of maximum change is by
 construction a moment when the screen is mid-way between two states.
 
-## What follows
+## What followed: `look`
 
-The fix is small and falls out of the two findings together: a mark is a
-**segment boundary**, so the frame worth extracting is the **midpoint between
-consecutive marks**, not the mark itself. That is a few lines on top of what
-exists, and it converts a list of transitions into a list of stable screens —
-which is what a describer or a retriever actually wants.
+The fix falls out of the two findings together, and is now implemented. A mark
+is a **segment boundary**, so every mark carries a second timestamp — `look`,
+the **midpoint of the stretch during which that screen was up**. `t` answers
+"when did this screen arrive"; `look` answers "where do I point a camera".
+
+Measured on the reference recording after the change:
+
+```
+instability of the frame you would send to a vision model
+  at a mark (t)       0.0989
+  at its look         0.0223      <- 4.4x more stable, better on 141/150 marks
+  at a random second  0.0313
+
+same-screen coverage: find t's segment by its boundary, then take the frame at...
+  the boundary itself   0.9476
+  the segment midpoint  0.9753    <- what ships
+  150 random timestamps 0.9161 +/- 0.0061   (~10 sigma below)
+```
+
+One methodological note, because it is the same trap this whole document is
+about. The first attempt at that second table scored the `look` points *as if
+they were boundaries* — searching for the last `look` at or before `t` — and
+returned 0.9102, apparently **worse than random**. That number was an artifact
+of the metric, not a property of the scheme: midpoints are not boundaries, so
+the last `look` before `t` is frequently in the previous segment. Separating
+"which segment is `t` in" (answered by marks) from "which frame represents that
+segment" (answered by `look`) is what the code actually does, and measuring it
+that way gives the table above. A plausible number from the wrong measurement
+nearly buried a working change.
 
 Two things this measurement does not establish:
 
