@@ -299,7 +299,15 @@ def test_no_resume_removes_a_checkpoint_it_will_not_use(
 
 
 def _spy_on_atomic_write(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
-    """Record every path routed through the atomic writer, and really write it."""
+    """Record every path routed through the atomic writer, and really write it.
+
+    Patched in TWO places on purpose. transcribe.py binds the name at module
+    import, so the patch has to land on `deixis.transcribe`; cli.py imports it
+    inside the function body, so that call re-reads `deixis.atomic` and needs
+    the source patched too. Patching one and not the other is how the failure
+    path stopped being observed when the CLI moved.
+    """
+    import deixis.atomic as atomic_mod
     import deixis.transcribe as transcribe_mod
 
     seen: list[Path] = []
@@ -310,6 +318,7 @@ def _spy_on_atomic_write(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
         real(path, text, **kwargs)
 
     monkeypatch.setattr(transcribe_mod, "atomic_write_text", spy)
+    monkeypatch.setattr(atomic_mod, "atomic_write_text", spy)
     return seen
 
 

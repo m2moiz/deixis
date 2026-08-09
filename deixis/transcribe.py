@@ -15,6 +15,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "OVERLAP_S",
     "Progress",
+    "clock",
     "main",
     "render_bar",
     "transcribe",
@@ -99,7 +100,13 @@ class Progress:
         return (self.audio_total_s - self.audio_done_s) / self.speed
 
 
-def _clock(seconds: float | None) -> str:
+def clock(seconds: float | None) -> str:
+    """Render a duration as m:ss, or h:mm:ss once it passes an hour.
+
+    None is "--:--" and NOT "0:00": a run whose total duration ffprobe could
+    not determine has no elapsed time to show, and printing zero would claim it
+    finished instantly.
+    """
     if seconds is None:
         return "--:--"
     seconds = int(seconds)
@@ -114,8 +121,8 @@ def render_bar(p: Progress, state: str, width: int = 24) -> str:
     bar = "#" * filled + "-" * (width - filled)
     return (
         f"{state:>10} [{bar}] {p.fraction * 100:3.0f}%  "
-        f"{_clock(p.audio_done_s)}/{_clock(p.audio_total_s)} audio  "
-        f"elapsed {_clock(p.elapsed_s)}  eta {_clock(p.eta_s)}  {p.speed:.1f}x"
+        f"{clock(p.audio_done_s)}/{clock(p.audio_total_s)} audio  "
+        f"elapsed {clock(p.elapsed_s)}  eta {clock(p.eta_s)}  {p.speed:.1f}x"
     )
 
 
@@ -347,7 +354,7 @@ def transcribe(
                 skip_before, start_tokens = found
                 logger.info(
                     "resuming from %s (%d tokens banked)",
-                    _clock(skip_before / rate),
+                    clock(skip_before / rate),
                     len(start_tokens),
                 )
         else:
@@ -434,108 +441,19 @@ def transcribe(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the CLI: parse args, transcribe, and report progress on stderr.
+    """Run the transcribe CLI.
+
+    A shim onto `deixis.cli`, which owns every flag in the project so that the
+    console script and `python -m deixis.transcribe` cannot drift apart. Kept
+    as a function returning an int because that is the contract its tests --
+    and any embedder -- already rely on.
 
     Returns:
-        A process exit code -- 0 on success, 1 if the media could not be read.
+        A process exit code.
     """
-    import argparse
+    from deixis.cli import run
 
-    # The CLI is the one caller allowed to decide where log records go. A bare
-    # handler on our own logger rather than basicConfig(): basicConfig is a
-    # no-op once the root logger already has handlers, which is exactly the
-    # case under pytest, and a gate that silently does nothing is the failure
-    # this whole effort exists to remove. format is the message alone so the
-    # output is byte-identical to the prints these calls replaced.
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    ap = argparse.ArgumentParser(description="Transcribe media to a timestamped index.")
-    ap.add_argument("media", type=Path, help="video or audio file; a .mov is the normal case")
-    ap.add_argument("-o", "--out", type=Path, required=True)
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--status", type=Path, help="JSON heartbeat file for detached runs")
-    ap.add_argument(
-        "--no-resume",
-        action="store_true",
-        help="ignore any checkpoint from an interrupted run and start over",
-    )
-    ap.add_argument(
-        "--no-diarize",
-        action="store_true",
-        help="skip speaker labelling; emit the transcript alone",
-    )
-    ap.add_argument(
-        "--require-diarize",
-        action="store_true",
-        help="fail the run if speaker labelling cannot run, instead of degrading",
-    )
-    args = ap.parse_args(argv)
-
-    # \r only rewrites the line on a terminal; when piped, print one line per
-    # chunk instead so a captured log stays readable rather than becoming one
-    # enormous line of control characters.
-    tty = sys.stderr.isatty()
-    last_state = ""
-
-    def show(p: Progress, state: str) -> None:
-        # A phase change ends the rewritten line, so the finished extraction bar
-        # stays on screen instead of being overwritten by transcription's 0%.
-        nonlocal last_state
-        if tty and last_state and state != last_state:
-            print(file=sys.stderr)
-        last_state = state
-        end = "\r" if tty else "\n"
-        print(render_bar(p, state), end=end, file=sys.stderr, flush=True)
-
-    started = time.monotonic()
-    try:
-        result = transcribe(
-            args.media,
-            args.out,
-            args.model,
-            status_path=args.status,
-            on_progress=show,
-            resume=not args.no_resume,
-            diarize=not args.no_diarize,
-            require_diarize=args.require_diarize,
-        )
-    except Exception as exc:
-        # Record and re-raise: a detached watcher polling the heartbeat has no
-        # other way to distinguish "died" from "not started yet". The traceback
-        # still reaches the terminal untouched.
-        if args.status:
-            # Atomic for the same reason as the heartbeat, and more so: the
-            # watcher polling for exactly this document is in a tight read loop,
-            # which makes it the reader most likely to land inside a torn write.
-            atomic_write_text(
-                args.status,
-                json.dumps({"state": "failed", "error": f"{type(exc).__name__}: {exc}"}),
-            )
-        raise
-    if tty:
-        print(file=sys.stderr)
-    elapsed = time.monotonic() - started
-    total = result["sentences"][-1]["end"] if result["sentences"] else 0.0
-    # No realtime multiple here any more. `total / elapsed` describes this run's
-    # wall clock against the WHOLE file's duration, which on a resumed run
-    # credits this process with work a previous one paid for -- an hour of audio
-    # finished in the last two minutes reads as 30x. The live bar still reports
-    # speed, correctly, because Progress.resumed_from_s lets it subtract the
-    # banked audio; the summary has no such number to hand. Two plain durations
-    # the reader can divide themselves beat one confident wrong figure.
-    # A count, not a rate. The only number the summary can add here without
-    # reintroducing the realtime multiple removed above, and it is guarded on
-    # the key because a degraded run has no speakers to count.
-    speakers = f" · {len(result['speakers'])} speakers" if "speakers" in result else ""
-    print(
-        f"done: {_clock(total)} audio in {_clock(elapsed)}{speakers} -> {args.out}",
-        file=sys.stderr,
-    )
-    return 0
+    return run(["transcribe", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

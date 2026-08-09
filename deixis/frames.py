@@ -59,7 +59,6 @@ __all__ = [
 import json
 import logging
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -317,73 +316,17 @@ def mark_video(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the CLI: add visual change marks to an existing transcript.
+    """Run the mark CLI.
+
+    A shim onto `deixis.cli` for the same reason as transcribe's: one
+    definition of every flag, two ways to reach it.
 
     Returns:
-        A process exit code -- 0 on success.
+        A process exit code.
     """
-    import argparse
+    from deixis.cli import run
 
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    ap = argparse.ArgumentParser(
-        description="Mark the moments a recording's picture changed most."
-    )
-    ap.add_argument("media", type=Path, help="the video the transcript indexes")
-    ap.add_argument("-t", "--transcript", type=Path, required=True)
-    ap.add_argument(
-        "-o",
-        "--out",
-        type=Path,
-        help="where to write transcript+marks; defaults to overwriting --transcript",
-    )
-    ap.add_argument("--fps", type=float, default=DEFAULT_FPS)
-    ap.add_argument("--delta", type=int, default=DEFAULT_DELTA)
-    ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET)
-    ap.add_argument("--min-gap", type=float, default=DEFAULT_MIN_GAP_S)
-    args = ap.parse_args(argv)
-
-    tty = sys.stderr.isatty()
-    started = time.monotonic()
-
-    def show(done_s: float) -> None:
-        elapsed = time.monotonic() - started
-        speed = done_s / elapsed if elapsed > 0 else 0.0
-        print(
-            f"scanning {done_s:7.0f}s of video  {speed:4.1f}x",
-            end="\r" if tty else "\n",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    result = mark_video(
-        args.media,
-        args.transcript,
-        args.out or args.transcript,
-        fps=args.fps,
-        delta=args.delta,
-        budget=args.budget,
-        min_gap_s=args.min_gap,
-        on_progress=show,
-    )
-    if tty:
-        print(file=sys.stderr)
-
-    marks: list[dict[str, Any]] = result["marks"]
-    scanned = result["marks_meta"]["frames_sampled"]
-    # A count and the span it covers, not a rate: "150 marks" alone reads as a
-    # lot or a little depending on a duration the reader has to go and find.
-    logger.info(
-        "%d marks over %d sampled frames in %.0fs",
-        len(marks),
-        scanned,
-        time.monotonic() - started,
-    )
-    return 0
+    return run(["mark", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

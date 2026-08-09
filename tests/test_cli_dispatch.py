@@ -84,7 +84,10 @@ def test_help_is_not_an_error() -> None:
 
 def test_an_unknown_verb_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["wat"]) == 2
-    assert "unknown command" in capsys.readouterr().err
+    # Substring, not the whole line: Typer renders errors in a box that wraps
+    # to the terminal width, so an exact match would fail on a narrow terminal
+    # and pass on a wide one.
+    assert "No such command" in capsys.readouterr().err
 
 
 def test_frame_writes_the_image_and_prints_its_path(
@@ -135,30 +138,77 @@ def test_a_bad_timestamp_surfaces_rather_than_writing_nothing(
         main(["frame", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
 
 
-def test_mark_routes_to_the_frames_cli(
+def test_the_module_entry_point_reaches_the_mark_command(
     video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: list[list[str]] = []
+    """`python -m deixis.frames` must still work, and must go through Typer.
 
-    def fake(argv: list[str] | None = None) -> int:
-        seen.append(list(argv or []))
-        return 0
+    The direction of this reversed when the CLI moved to Typer: frames.main is
+    now a shim ONTO the app rather than something the dispatcher calls. What
+    matters either way is that the flags parse to the same values.
+    """
+    import deixis.frames as frames_mod
 
-    monkeypatch.setattr("deixis.frames.main", fake)
-    assert main(["mark", str(video), "-t", "t.json"]) == 0
-    assert seen == [[str(video), "-t", "t.json"]]
+    seen: dict[str, object] = {}
+
+    def fake(media: Path, transcript: Path, out: Path, **kw: object) -> dict[str, object]:
+        seen.update({"media": media, "transcript": transcript, "out": out, **kw})
+        return {"marks": [], "marks_meta": {"frames_sampled": 0}}
+
+    monkeypatch.setattr(frames_mod, "mark_video", fake)
+    assert frames_mod.main([str(video), "-t", "t.json", "--budget", "7", "--min-gap", "0"]) == 0
+    assert seen["media"] == video
+    assert seen["transcript"] == Path("t.json")
+    assert seen["out"] == Path("t.json"), "no -o means overwrite the transcript"
+    assert seen["budget"] == 7
+    assert seen["min_gap_s"] == 0.0
+    # Untouched flags must arrive as the defaults frames.py documents, not as
+    # the zero sentinels the Typer signature uses to detect "not given".
+    assert seen["fps"] == frames_mod.DEFAULT_FPS
+    assert seen["delta"] == frames_mod.DEFAULT_DELTA
 
 
-def test_transcribe_routes_to_the_transcribe_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[list[str]] = []
+def test_mark_writes_elsewhere_when_told_to(
+    video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """-o must beat the transcript path, not be discarded in favour of it.
 
-    def fake(argv: list[str] | None = None) -> int:
-        seen.append(list(argv or []))
-        return 0
+    The no--o case above passes whether or not the option is honoured, so on
+    its own it pins nothing -- a mutant that ignored -o survived it.
+    """
+    import deixis.frames as frames_mod
 
-    monkeypatch.setattr("deixis.transcribe.main", fake)
-    assert main(["transcribe", "v.mov", "-o", "out.json"]) == 0
-    assert seen == [["v.mov", "-o", "out.json"]]
+    seen: dict[str, object] = {}
+
+    def fake(media: Path, transcript: Path, out: Path, **kw: object) -> dict[str, object]:
+        seen.update({"transcript": transcript, "out": out})
+        return {"marks": [], "marks_meta": {"frames_sampled": 0}}
+
+    monkeypatch.setattr(frames_mod, "mark_video", fake)
+    assert frames_mod.main([str(video), "-t", "t.json", "-o", "elsewhere.json"]) == 0
+    assert seen["transcript"] == Path("t.json")
+    assert seen["out"] == Path("elsewhere.json")
+
+
+def test_the_module_entry_point_reaches_the_transcribe_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import deixis.transcribe as transcribe_mod
+
+    seen: dict[str, object] = {}
+
+    def fake(media: Path, out: Path, model: str = "", **kw: object) -> dict[str, object]:
+        seen.update({"media": media, "out": out, "model": model, **kw})
+        return {"sentences": []}
+
+    monkeypatch.setattr(transcribe_mod, "transcribe", fake)
+    out = tmp_path / "out.json"
+    assert transcribe_mod.main(["v.mov", "-o", str(out), "--no-diarize"]) == 0
+    assert seen["media"] == Path("v.mov")
+    assert seen["out"] == out
+    assert seen["diarize"] is False
+    assert seen["resume"] is True
+    assert seen["model"] == transcribe_mod.DEFAULT_MODEL
 
 
 def test_the_installed_console_script_works() -> None:
@@ -172,4 +222,5 @@ def test_the_installed_console_script_works() -> None:
         cwd=Path(__file__).resolve().parent.parent,
     )
     assert proc.returncode == 0, proc.stderr
-    assert "frame      VIDEO SECONDS" in proc.stdout
+    for verb in ("transcribe", "mark", "frame"):
+        assert verb in proc.stdout, proc.stdout

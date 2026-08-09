@@ -12,6 +12,10 @@ dependencies = [
     "numpy>=2.0",
     "parakeet-mlx>=0.5.2",
     "pydantic>=2.13.4",
+    # Already present transitively via parakeet-mlx, which is exactly why it
+    # gets declared: a transitive dependency can vanish under an upstream
+    # release with no warning, and cli.py imports it directly.
+    "typer>=0.20",
 ]
 
 # The reachable surface. Until this existed, pulling a frame out of a video
