@@ -22,7 +22,7 @@ in the meeting and, as text, it is worthless. The referent was on screen.
 |---|---|
 | **Transcript half** | working — ingestion, chunked ASR, resume, optional speaker labels |
 | **Visual marks** | working — the moments the picture changed. [Validated externally](docs/generalisation.md) against human annotations (p < 0.0001), but [worth little on their own](docs/do-marks-help.md) for answering questions |
-| **Frame retrieval** | working — `media.extract_frame(video, t, dest)`. This is what actually makes a recording answerable: 5/16 → 16/16 on a blind-graded question set |
+| **Frame retrieval** | working — `deixis frame video 431.5 -o f.jpg`. This is what actually makes a recording answerable: 5/16 → 16/16 on a blind-graded question set |
 | **Frame description** | **not built**, and now blocked on a *measured* finding rather than an unmeasured one. See [Roadmap](#roadmap) |
 
 So today deixis is a resumable, observable transcriber that also tells you
@@ -56,8 +56,32 @@ Model weights (~2.4 GB) download on first run and are cached by
 
 ## Usage
 
+One command, three verbs:
+
 ```bash
-uv run python -m deixis.transcribe recording.mov -o transcript.json
+deixis transcribe recording.mov -o transcript.json   # what was said, when
+deixis mark       recording.mov -t transcript.json   # when the picture changed
+deixis frame      recording.mov 431.5 -o frame.jpg   # the picture at that moment
+```
+
+`deixis frame` prints the path it wrote and nothing else, so it composes:
+
+```bash
+open "$(deixis frame recording.mov 431.5 -o /tmp/f.jpg)"
+```
+
+**If you point an agent at a recording, tell it about `deixis frame`.** That one
+verb is the difference between an agent reconstructing the screen from what was
+said about it and an agent looking: measured 5/16 against 16/16 on a
+blind-graded question set ([docs/do-marks-help.md](docs/do-marks-help.md)).
+
+`python -m deixis.transcribe` and `python -m deixis.frames` still work and are
+the same code.
+
+### Transcription
+
+```bash
+deixis transcribe recording.mov -o transcript.json
 ```
 
 Progress renders live on stderr:
@@ -117,18 +141,22 @@ failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
 
 ### Retrieving a frame
 
-```python
-from pathlib import Path
-from deixis.media import extract_frame
-
-extract_frame(Path("recording.mov"), 431.5, Path("frame.jpg"), width=1500)
+```bash
+deixis frame recording.mov 431.5 -o frame.jpg [--width 1500]
 ```
 
-Nothing is precomputed and nothing is cached — the video is already on disk.
-This is the step that makes the index worth having: on a blind-graded set of
-eight questions drawn from the transcript's deictic sentences, an agent with the
-transcript alone scored 5/16, with marks added 7/16, and with frame access
-**16/16**. [docs/do-marks-help.md](docs/do-marks-help.md) has the method.
+| Flag | |
+|---|---|
+| `-o, --out PATH` | where the image goes; `.jpg` is what a vision model wants |
+| `--width N` | scale to N pixels wide, aspect preserved (default 1500; `0` keeps source) |
+
+Nothing is precomputed and nothing is cached — the video is already on disk, and
+seeking into it is cheap. The 1500px default is a measured ceiling rather than a
+taste: a full 2940px frame is ~776 KB as a JPEG, more than most vision APIs
+want, and legibility stopped improving well below that — 700px to 1600px moved
+recall by one string in fifteen ([docs/vlm-legibility.md](docs/vlm-legibility.md)).
+
+Also available as `deixis.media.extract_frame(video, t, dest, width=...)`.
 
 ## Output
 
@@ -414,6 +442,7 @@ are OCR-based, which is the approach this tool rejects.
 deixis/            the package
   media.py         ffmpeg ingestion, with progress and actionable errors
   transcribe.py    the CLI and the orchestration
+  cli.py           the `deixis` command: transcribe | mark | frame
   frames.py        the moments the picture changed, ranked under a budget
   chunking.py      the chunk loop parakeet-mlx does not provide
   checkpoint.py    resume, and the validated boundary that reads it

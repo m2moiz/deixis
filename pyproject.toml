@@ -14,6 +14,13 @@ dependencies = [
     "pydantic>=2.13.4",
 ]
 
+# The reachable surface. Until this existed, pulling a frame out of a video
+# meant importing deixis.media from Python -- and frame retrieval is the step
+# measured to take an agent from 5/16 to 16/16 (docs/do-marks-help.md). A
+# capability nothing can invoke is a capability nobody has.
+[project.scripts]
+deixis = "deixis.cli:main"
+
 [project.optional-dependencies]
 diarize = [
     "senko>=0.1.0,<0.2",
