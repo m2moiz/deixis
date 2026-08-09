@@ -1,4 +1,4 @@
-"""_clock renders a duration for a human reading a progress line.
+"""clock renders a duration for a human reading a progress line.
 
 Every expected string here was produced by running the real function; none was
 computed by hand.
@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-# Reaching for a private name is the point: _clock is internal to transcribe and
-# these tests are its unit tests, so there is no public surface to target.
-from deixis.transcribe import _clock  # pyright: ignore[reportPrivateUsage]
+# Public since the CLI moved to Typer: cli.py renders the closing summary and
+# needs the same formatting as the progress bar, so a second module depends on
+# it and the leading underscore had stopped being true.
+from deixis.transcribe import clock
 
 
 @pytest.mark.parametrize(
@@ -41,7 +42,7 @@ from deixis.transcribe import _clock  # pyright: ignore[reportPrivateUsage]
     ],
 )
 def test_clock_formats(seconds: float | None, expected: str) -> None:
-    assert _clock(seconds) == expected
+    assert clock(seconds) == expected
 
 
 def test_clock_distinguishes_zero_from_unknown() -> None:
@@ -49,4 +50,4 @@ def test_clock_distinguishes_zero_from_unknown() -> None:
 
     `if not seconds` in place of `if seconds is None` would collapse these.
     """
-    assert _clock(0.0) != _clock(None)
+    assert clock(0.0) != clock(None)
