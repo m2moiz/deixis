@@ -115,6 +115,21 @@ knowing about, and it is not a preference — three threshold-based detectors we
 built and measured against a real recording before this one, and all three
 failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
 
+### Retrieving a frame
+
+```python
+from pathlib import Path
+from deixis.media import extract_frame
+
+extract_frame(Path("recording.mov"), 431.5, Path("frame.jpg"), width=1500)
+```
+
+Nothing is precomputed and nothing is cached — the video is already on disk.
+This is the step that makes the index worth having: on a blind-graded set of
+eight questions drawn from the transcript's deictic sentences, an agent with the
+transcript alone scored 5/16, with marks added 7/16, and with frame access
+**16/16**. [docs/do-marks-help.md](docs/do-marks-help.md) has the method.
+
 ## Output
 
 ```jsonc
@@ -135,7 +150,9 @@ failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
   ],
 
   // added by `python -m deixis.frames`; absent until that pass has run
-  "marks": [{"t": 417.0, "score": 2841}],
+  // t    = when the picture changed (the boundary)
+  // look = the frame worth extracting: the middle of the stretch that screen was up
+  "marks": [{"t": 417.0, "score": 2841, "look": 431.5}],
   "marks_meta": {"budget": 150, "min_gap_s": 5.0, "fps": 1.0, "delta": 8,
                  "grid": [128, 84], "frames_sampled": 1997, "source": "..."}
 }
@@ -154,6 +171,12 @@ Two things about this shape are deliberate:
   happens to span that second would invent a relationship nothing observed.
   `marks_meta` travels with it for the same reason `diarization` does — marks
   from a budget of 150 and marks from a budget of 20 are different documents.
+- **`look` is not `t`, and a consumer wanting a frame should use `look`.** A
+  mark is by construction the moment of maximum change, which is the moment the
+  screen is halfway between two states — mid-load skeletons and half-drawn
+  window switches. Measured: a frame at `t` differs from its neighbours in 9.9%
+  of tiles against 2.2% at `look`. Use `t` to know *when*, `look` to know
+  *where to point a camera*.
 
 ## Development
 

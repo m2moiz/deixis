@@ -148,12 +148,12 @@ def test_the_timestamp_is_the_frame_after_the_change() -> None:
     happened, which is the frame that does not show it.
     """
     marks = select_marks(_scores(0, 42), fps=1.0, budget=1, min_gap_s=0.0)
-    assert marks == [Mark(t=2.0, score=42)]
+    assert marks == [Mark(t=2.0, score=42, look=2.0)]
 
 
 def test_fps_scales_the_timestamps() -> None:
     marks = select_marks(_scores(0, 42), fps=2.0, budget=1, min_gap_s=0.0)
-    assert marks == [Mark(t=1.0, score=42)]
+    assert marks == [Mark(t=1.0, score=42, look=1.0)]
 
 
 def test_the_gap_suppresses_a_neighbour_however_high_it_scores() -> None:
@@ -196,6 +196,60 @@ def test_the_gap_is_measured_in_seconds_not_in_frames() -> None:
     assert len(select_marks(scores, fps=2.0, budget=2, min_gap_s=1.5)) == 2
 
 
+def test_look_is_the_middle_of_the_screen_not_its_first_instant() -> None:
+    """A mark is the moment of maximum change, so it is the worst frame to grab.
+
+    Measured on the reference recording: a frame at a mark differs from its
+    neighbours in 9.9% of tiles against 2.0% midway between marks. `look` must
+    therefore sit halfway to the NEXT mark, never on the boundary itself.
+    """
+    # Screens begin at t=1 and t=6; 10 intervals, so the file ends at t=10.
+    marks = select_marks(
+        _scores(90, 0, 0, 0, 0, 80, 0, 0, 0, 0), fps=1.0, budget=2, min_gap_s=0.0
+    )
+    assert [(m.t, m.look) for m in marks] == [(1.0, 3.5), (6.0, 8.0)]
+
+
+def test_the_last_look_runs_to_the_end_of_the_recording() -> None:
+    """Not to the last mark.
+
+    The final screen is often the one left on display when recording stopped.
+    Ending the last segment at its own start would give it a `look` equal to
+    `t` -- the one frame this whole field exists to avoid.
+    """
+    (mark,) = select_marks(_scores(*([50] + [0] * 19)), fps=1.0, budget=1, min_gap_s=0.0)
+    assert mark.t == 1.0
+    assert mark.look == 10.5  # midway between t=1 and the end at t=20
+
+
+def test_look_scales_with_fps_like_t_does() -> None:
+    marks = select_marks(_scores(90, 0, 0, 80, 0, 0), fps=2.0, budget=2, min_gap_s=0.0)
+    assert [(m.t, m.look) for m in marks] == [(0.5, 1.25), (2.0, 2.5)]
+
+
+def test_look_never_precedes_its_own_mark() -> None:
+    """The invariant, including the one case where they coincide.
+
+    A change on the very last sampled frame opens a segment with no duration,
+    so its midpoint is itself. One mark in 150 on the reference recording. What
+    must never happen is `look` landing BEFORE `t` -- that would point at the
+    screen being replaced rather than the one that arrived.
+    """
+    marks = select_marks(_scores(*([7] * 40)), fps=1.0, budget=40, min_gap_s=0.0)
+    assert len(marks) > 1
+    assert all(m.look >= m.t for m in marks)
+    assert marks[-1].look == marks[-1].t  # the last interval has nothing after it
+
+
+def test_no_marks_means_no_segments_rather_than_a_crash() -> None:
+    """The empty case has no start to pair the recording's end with.
+
+    Zipping one end against zero starts raised, which the zero-score and
+    zero-budget tests caught on the first run of this feature.
+    """
+    assert select_marks(_scores(0, 0, 0), fps=1.0, budget=5, min_gap_s=0.0) == []
+
+
 def test_zero_scores_are_never_marked() -> None:
     """A budget is a ceiling, not a quota.
 
@@ -216,7 +270,7 @@ def test_no_scores_yield_nothing() -> None:
 
 def test_ties_break_toward_the_earlier_frame() -> None:
     marks = select_marks(_scores(5, 5, 5), fps=1.0, budget=1, min_gap_s=0.0)
-    assert marks == [Mark(t=1.0, score=5)]
+    assert marks == [Mark(t=1.0, score=5, look=2.0)]
 
 
 def test_ties_break_the_same_way_at_a_size_that_changes_the_sort() -> None:
@@ -231,7 +285,7 @@ def test_ties_break_the_same_way_at_a_size_that_changes_the_sort() -> None:
     """
     scores = np.concatenate([np.zeros(5, dtype=np.int32), np.full(300, 3, dtype=np.int32)])
     marks = select_marks(scores, fps=1.0, budget=1, min_gap_s=0.0)
-    assert marks == [Mark(t=6.0, score=3)]
+    assert marks == [Mark(t=6.0, score=3, look=155.5)]
 
 
 def test_a_zero_budget_returns_nothing() -> None:
@@ -260,14 +314,14 @@ def test_nonsense_parameters_are_rejected(kwargs: dict[str, float], match: str) 
 
 def test_marks_are_added_beside_the_sentences() -> None:
     payload = {"audio": "a.mov", "sentences": [{"start": 0.0}]}
-    out = with_marks(payload, [Mark(t=1.5, score=9)], {"budget": 1})
-    assert out["marks"] == [{"t": 1.5, "score": 9}]
+    out = with_marks(payload, [Mark(t=1.5, score=9, look=4.0)], {"budget": 1})
+    assert out["marks"] == [{"t": 1.5, "score": 9, "look": 4.0}]
     assert out["sentences"] == payload["sentences"]
 
 
 def test_the_original_payload_is_left_alone() -> None:
     payload: dict[str, object] = {"sentences": []}
-    with_marks(payload, [Mark(t=1.0, score=1)], {})
+    with_marks(payload, [Mark(t=1.0, score=1, look=1.0)], {})
     assert "marks" not in payload
 
 

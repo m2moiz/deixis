@@ -107,16 +107,38 @@ DEFAULT_MIN_GAP_S = 5.0
 
 
 class Mark(NamedTuple):
-    """One moment worth looking at.
+    """One screen, from the moment it appeared to the moment it was replaced.
 
-    `score` is the number of tiles that changed since the previous sample. It
-    is kept rather than dropped because it is the only thing distinguishing a
-    window switch from a scroll, and a consumer deciding which marks to spend a
-    VLM call on needs that ordering.
+    `t` is the boundary -- when the picture changed. `look` is the frame worth
+    actually extracting, and the two are deliberately NOT the same timestamp.
+
+    A mark is by construction the moment of maximum change, which is the moment
+    the screen is mid-way between two states. Measured on the reference
+    recording, a frame at a mark differs from its neighbours in 9.9% of tiles
+    against 2.0% for a frame midway between two marks -- five times less stable
+    -- and 23% of marks sit in the top 5% most unstable seconds of the whole
+    file. In practice that means mid-load skeletons and half-drawn window
+    switches: the single highest-scoring mark on the reference recording is a
+    macOS Mission Control animation, maximum pixel churn and no content at all.
+
+    So `t` answers "when did this screen arrive" and `look` answers "where do I
+    point a camera", which is the midpoint of the stretch during which that
+    screen was up. A consumer wanting a frame should use `look` every time.
+
+    `look` is always >= `t`, and equals it only in the degenerate case of a
+    change on the very last sampled frame -- a segment with no duration to take
+    a midpoint of. That is one mark in 150 on the reference recording, and the
+    honest answer there is the frame itself; there is no later one.
+
+    `score` is the number of tiles that changed at `t`. It is kept because it
+    is the only thing distinguishing a window switch from a scroll -- but note
+    it ranks the size of a TRANSITION, not the interest of the screen that
+    followed, and it should not be read as a relevance signal.
     """
 
     t: float
     score: int
+    look: float
 
 
 def change_scores(tiles: NDArray[np.uint8], delta: int = DEFAULT_DELTA) -> NDArray[np.int32]:
@@ -207,8 +229,19 @@ def select_marks(
             picked.append(idx)
 
     # i indexes the interval between frames i and i+1, so the change is visible
-    # at frame i+1 and that is the timestamp worth seeking to.
-    return sorted(Mark(t=(i + 1) / fps, score=int(scores[i])) for i in picked)
+    # at frame i+1 and that is where the screen begins.
+    if not picked:
+        return []
+    picked.sort()
+    starts = [(i + 1) / fps for i in picked]
+    # The last segment runs to the end of what was sampled, not to the last
+    # mark -- otherwise the final screen, often the one left on display when
+    # the recording stops, would have no frame to look at.
+    ends = [*starts[1:], len(scores) / fps]
+    return [
+        Mark(t=start, score=int(scores[i]), look=(start + end) / 2)
+        for i, start, end in zip(picked, starts, ends, strict=True)
+    ]
 
 
 def with_marks(payload: Payload, marks: list[Mark], meta: dict[str, Any]) -> Payload:
@@ -224,7 +257,9 @@ def with_marks(payload: Payload, marks: list[Mark], meta: dict[str, Any]) -> Pay
     would invent a relationship the detector never observed.
     """
     out = dict(payload)
-    out["marks"] = [{"t": round(m.t, 3), "score": m.score} for m in marks]
+    out["marks"] = [
+        {"t": round(m.t, 3), "score": m.score, "look": round(m.look, 3)} for m in marks
+    ]
     # The parameters travel with the result. Marks from a budget of 150 and
     # marks from a budget of 20 are different documents, and a reader with only
     # the list cannot tell which one they have.
