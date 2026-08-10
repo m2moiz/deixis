@@ -4,9 +4,9 @@ Every number in [visual-marks.md](visual-marks.md) and
 [do-marks-help.md](do-marks-help.md) came from one 33-minute Microsoft Teams
 recording on one laptop. That is n=1, and n=1 is a demo. This is the check.
 
-Three experiments: eight local recordings, an external benchmark with human
-ground truth, and a sampling-rate sweep. Two of the three changed what the
-project believes.
+Four experiments: eight local recordings, two external benchmarks with human
+ground truth (834 short GUI clips and five hour-long lectures), and a
+sampling-rate sweep. Three of the four changed what the project believes.
 
 ## 1. Eight local recordings — does the `look` idea generalise?
 
@@ -50,30 +50,33 @@ result. Random gets you a calmer frame; `look` gets you a frame that *represents
 the second you asked about*. For enumerating a recording the second is what
 matters, and `look` wins that 8/8.
 
-## 2. GUI-World — an external benchmark with human ground truth
+## 2. GUI-World — 834 recordings with human-annotated keyframes
 
 [GUI-World](https://huggingface.co/datasets/shuaishuaicdp/GUI-World) (ICLR 2025,
-CC BY 4.0) is 496 desktop screen recordings whose **keyframes were placed by
-human annotators** at the moments a user action changed the screen. Nobody here
-produced that ground truth, which is the entire point of using it.
+CC BY 4.0) is 496 desktop, 246 browser and 146 multi-app screen recordings whose
+**keyframes were placed by human annotators** at the moments a user action
+changed the screen. Nobody here produced that ground truth, which is the point.
 
-Method: 40 videos from the `software` benchmark split (one, `software/165.mp4`,
-is truncated on the hub and is skipped and named rather than silently dropped).
 For each video the budget is set to **exactly the number of human keyframes**,
-so the comparison is like-for-like, and the baseline is 200 draws of the same
-number of uniformly random timestamps.
+so the comparison is like-for-like rather than "who emits more guesses", and the
+baseline is 200 draws of the same number of uniformly random timestamps.
 
 ```
-39 videos scored
-mean distance from a human keyframe to the nearest mark
-    ours    0.79s
-    random  1.36s
-ours closer on 37 / 38 videos          one-sided sign test  p < 0.0001
+split       videos    ours   random   better       won          p
+software       490   1.18s    1.77s      33%   423/490    1.6e-64
+website        246   0.98s    1.31s      25%   202/246    1.1e-25
+multi           98   2.60s    2.84s       8%    76/98     1.9e-08
+TOTAL          834                             701/834    3.5e-94
 ```
 
-**The marks find human-annotated change moments, and they beat chance
-decisively.** This is an external, repeatable result on data from another
-research group, and it is the strongest evidence the detector has.
+Four `software` videos are truncated on the hub and 48 `multi` videos went
+unfetched at the download cap; both are named in the run output rather than
+quietly dropped.
+
+**The `multi` split is the honest weak spot** — 8% better than random, against
+33% on `software`. Those clips are the longest (27s median) with the most
+annotated changes, so a fixed budget of marks crowds together and the margin
+compresses.
 
 ### Why this does not contradict the deictic result
 
@@ -83,12 +86,70 @@ are correct and they measure different targets:
 
 | Target | Nature | Marks |
 |---|---|---|
-| GUI-World keyframes | *user acted, the screen changed* — transitions | **win, p < 0.0001** |
+| GUI-World keyframes | *user acted, the screen changed* — transitions | **win, p = 3.5e-94** |
 | Deictic sentences | *speaker explains what is already on screen* — plateaus | **lose to random** |
 
 A change detector finds changes. It does not find explanations, and explanation
-happens after the change, while the screen sits still. Neither result is a bug;
-together they say precisely what the marks are for.
+happens after the change, while the screen sits still.
+
+## 2b. MaViLS — the long-form case, 34 to 85 minutes
+
+GUI-World clips are 15 seconds. deixis is for hour-long recordings, and that
+shape had no ground truth until now. [MaViLS](https://github.com/andererka/mavils)
+(Interspeech 2024) is 24 lectures whose transcribed sentences were mapped to
+slide numbers by human raters; five of them are public YouTube videos.
+
+**Ground truth here is an INTERVAL, not an instant.** A slide change is only
+localised between the last sentence on the old slide and the first on the new
+one. Scoring against either endpoint would invent precision the labels do not
+have, so a mark inside the interval scores 0 and outside scores the distance to
+the nearer end — and the random baseline is scored identically, so neither side
+profits from the slack. The derivation was checked by eye before use: the frames
+either side of one interval in `computer_vision_2_2` are a Camera Obscura
+engraving and two photographs, a real content change correctly bracketed.
+
+At a like-for-like budget (one mark per annotated change):
+
+```
+lecture                min    gt   marks    ours   random   hit%   rnd%
+computer_vision_2_2   34.8    14      14   24.22    64.78    79%    21%
+deeplearning          54.3    51      51    9.08    28.40    76%    17%
+numerics              85.2    73      73    2.87    30.82    85%    16%
+psychology            71.2    55      55   16.67    35.87    47%    13%
+solar_resource        75.2    90      90   37.80    21.41    29%    20%
+
+mean distance   ours 18.13s   random 36.26s
+within 2s       ours 63%      random 17%      ours closer on 4/5
+```
+
+At the **shipped default** budget of 150 marks — what a user actually gets:
+
+```
+mean distance   ours 5.15s    random 9.26s
+within 2s       ours 81%      random 42%      ours closer on 4/5
+```
+
+**Four in five slide changes are caught within two seconds on an hour-long
+lecture.** That is the first evidence for the workload this project exists for.
+
+### The one lecture it fails, and why
+
+`solar_resource` loses to random in both modes. The cause is visible in a single
+frame: it is **a camera pointed at a lecture hall**, not a screen recording. A
+presenter walks about in front of a projected slide, and his motion dominates
+every frame. Measured against a true screen capture:
+
+```
+median per-second change score
+  solar_resource   2187      <- camera in the room, presenter moving
+  numerics          347      <- screen capture
+```
+
+Six times the noise floor, and the slide changes are buried under it. This is a
+real limit worth stating plainly: **the detector assumes the frame IS the
+screen.** Neither the budget nor any threshold rescues a recording where most of
+the pixels are a person. Detecting that case — the score's own noise floor is
+the obvious signal — is not implemented.
 
 ## 3. The sampling rate — 1 fps is the best setting, not a compromise
 
@@ -116,24 +177,39 @@ moment; coarse sampling forces them apart.
 **Established:**
 
 - The `look` midpoint beats the mark itself on every video tried (8/8).
-- Marks match human change annotations far better than chance on an external,
-  third-party benchmark (p < 0.0001, 39 videos).
+- Marks match human change annotations far better than chance on **834
+  third-party GUI recordings**, p = 3.5e-94 pooled.
+- On **hour-long lectures with slide-change ground truth**, 81% of changes are
+  caught within two seconds at the shipped default budget, against 42% for
+  random. This is the workload the project targets and it now has evidence.
 - 1 fps is the right default, on evidence rather than convenience.
-- The pipeline runs unmodified on 1920x1080 OBS captures and 2940x1912 macOS
-  captures, on clips from 16 seconds to 74 minutes.
+- The pipeline runs unmodified from 16-second clips to 85-minute lectures, on
+  1920x1080 OBS captures, 2940x1912 macOS captures and YouTube lecture video.
 
-**Not established:**
+**Not established, and one known failure:**
 
-- GUI-World clips are short (median ~15s, dense actions). Long-form sparse
-  change is only tested on the two local Teams recordings.
-- The eight local videos have no ground truth; their metrics are self-supervised
-  and can only compare schemes, never confirm that a mark is *interesting*.
-- Nothing here re-tests whether marks help an *agent*. That measurement remains
-  the one in [do-marks-help.md](do-marks-help.md), n=8 questions, one recording.
-- No lecture, no coding session, no browser-only session.
+- **A camera pointed at a screen defeats it.** `solar_resource` is a lecture
+  hall filmed from the back; the presenter's motion is 6x the change floor of a
+  real screen capture and the slide changes vanish under it. Detecting this case
+  automatically is not implemented.
+- The `multi` GUI-World split wins by only 8%. Denser change compresses the
+  margin.
+- Five lectures is a small long-form sample, and all five are slide decks. No
+  coding session, no browser-only long-form session.
+- The eight local videos have no ground truth; their metrics can compare schemes
+  but never confirm a mark is *interesting*.
+- Nothing here re-tests whether marks help an *agent*. That remains
+  [do-marks-help.md](do-marks-help.md), n=8 questions, one recording.
 
-The closest complement for long-form ground truth is
-[MaViLS](https://github.com/andererka/mavils) — 20 lectures, ~66 minutes each,
-sentence-to-slide alignment — which needs a Kaggle account and gives boundaries
-only at sentence granularity. [datasets-surveyed.md](datasets-surveyed.md) records that survey,
-including the eight candidates that were checked and rejected.
+## Datasets that turned out unusable
+
+Checked by inspecting what actually landed on disk, not by reading a page:
+
+| Dataset | Why not |
+|---|---|
+| **SeeAction** | 2 GB fetched, and it is `dataset/Images/photoshop_001/03538.png` — extracted **frames**, not video. The archive is also truncated at exactly 2 GiB by the download cap. |
+| **VidChapters-7M** | 1.9 GB is `chapters.pkl` — annotations only. Every video needs a separate yt-dlp fetch, and screen content is an unlabelled minority of general YouTube. |
+| **PsTuts** | Google Drive download produced 0 bytes. |
+
+[datasets-surveyed.md](datasets-surveyed.md) records the wider survey, including
+eight further candidates rejected before download.

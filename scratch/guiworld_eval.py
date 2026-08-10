@@ -48,7 +48,10 @@ from deixis.frames import GRID_H, GRID_W, change_scores, select_marks
 from deixis.media import extract_tile_grid
 
 ROOT = Path(__file__).resolve().parent / "guiworld"
-ANN = ROOT / "Annotation" / "benchmark" / "software.jsonl"
+
+
+def annotations(split: str) -> Path:
+    return ROOT / "Annotation" / "benchmark" / f"{split}.jsonl"
 
 
 def video_fps(path: Path) -> float | None:
@@ -80,10 +83,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fps", type=float, default=1.0)
     ap.add_argument("--limit", type=int, default=40)
+    ap.add_argument("--split", default="software", help="software | website | multi")
+    ap.add_argument("--quiet", action="store_true", help="totals only, no per-video rows")
     ap.add_argument("--draws", type=int, default=200)
     args = ap.parse_args()
 
-    rows = [json.loads(line) for line in ANN.open()]
+    rows = [json.loads(line) for line in annotations(args.split).open()]
     rng = np.random.default_rng(0)
     ours: list[float] = []
     rand: list[float] = []
@@ -133,8 +138,12 @@ def main() -> int:
         })
 
     o, r = np.array(ours), np.array(rand)
-    print(f"{'video':<18}{'app':<22}{'dur':>6}{'gt':>4}{'ours':>7}{'random':>8}  winner")
-    for v in per_video:
+    if not len(o):
+        print(f"{args.split}: no scorable videos on disk")
+        return 0
+    if not args.quiet:
+        print(f"{'video':<18}{'app':<22}{'dur':>6}{'gt':>4}{'ours':>7}{'random':>8}  winner")
+    for v in per_video if not args.quiet else []:
         w = "ours" if v["ours_s"] < v["random_s"] else "random"  # type: ignore[operator]
         print(f"{v['video']!s:<18}{str(v['app'])[:21]:<22}{v['duration_s']:>6}"
               f"{v['gt']:>4}{v['ours_s']:>7}{v['random_s']:>8}  {w}")
@@ -142,7 +151,8 @@ def main() -> int:
     wins = int((o < r).sum())
     if skipped:
         print(f"\nSKIPPED (unreadable file): {', '.join(skipped)}")
-    print(f"\nvideos scored            : {len(o)}")
+    print(f"\nsplit                    : {args.split}")
+    print(f"videos scored            : {len(o)}")
     print(f"mean distance to a human keyframe -- ours {o.mean():.2f}s  random {r.mean():.2f}s")
     print(f"ours closer on           : {wins}/{len(o)} videos")
     # Sign test: how surprising is that win count if the two were equivalent?
@@ -150,10 +160,10 @@ def main() -> int:
     n = len(o)
     p = sum(comb(n, k) for k in range(wins, n + 1)) / 2**n
     print(f"one-sided sign test      : p = {p:.4f}")
-    Path("scratch/eval/guiworld.json").write_text(
+    Path(f"scratch/eval/guiworld_{args.split}.json").write_text(
         json.dumps({"per_video": per_video, "wins": wins, "n": n,
                     "mean_ours": float(o.mean()), "mean_random": float(r.mean()),
-                    "p": p, "fps": args.fps}, indent=1)
+                    "p": p, "fps": args.fps, "split": args.split}, indent=1)
     )
     return 0
 
