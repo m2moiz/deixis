@@ -248,6 +248,26 @@ def has_video(media: Path) -> bool:
     return bool(info.get("streams"))
 
 
+def _duration(media: Path) -> float | None:
+    """Seconds of video, or None if ffprobe will not say.
+
+    Used only to decide whether a failed frame extraction deserves the
+    "past the end" diagnosis. None means "do not claim to know".
+    """
+    proc = subprocess.run(
+        [_tool("ffprobe"), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=duration", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", str(media)],
+        capture_output=True, text=True, check=False,
+    )
+    for line in proc.stdout.split():
+        try:
+            return float(line)
+        except ValueError:
+            continue
+    return None
+
+
 def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None) -> Path:
     """Write the frame at `t` seconds of `media` to `dest`.
 
@@ -281,36 +301,57 @@ def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None
     if not has_video(media):
         raise NoVideoStream(f"{media} has no video stream, so there is no frame at {t}s.")
 
-    cmd = [
-        _tool("ffmpeg"),
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel", "error",
-        "-y",
-        # -ss BEFORE -i is the fast form: ffmpeg seeks the container instead of
-        # decoding from zero, which on a 33-minute file is the difference
-        # between milliseconds and half a minute. It has been frame-accurate
-        # since 2.1 -- the old "input seeking is approximate" advice predates
-        # that and would cost a full decode to avoid a problem that is gone.
-        "-ss", str(t),
-        "-i", str(media),
-        "-frames:v", "1",
-        "-q:v", "2",
-    ]
-    if width is not None:
-        cmd += ["-vf", f"scale={width}:-2"]  # -2, not -1: keeps the height even
-    cmd.append(str(dest))
+    if not dest.parent.is_dir():
+        # Checked before ffmpeg runs. Otherwise ENOENT on the parent surfaces as
+        # "Nothing was written into output file" and gets blamed on the
+        # timestamp -- which is the mistake a caller writing frames into a
+        # scratch directory it forgot to create will actually make.
+        raise MediaError(
+            f"cannot write {dest}: the directory {dest.parent} does not exist."
+        )
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    # Both conditions, not just the exit code. A seek past the end of the file
-    # fails deep in the encoder -- observed exit 234 with "Nothing was written
-    # into output file" buried under nine lines of thread teardown -- and the
-    # useful diagnosis is the missing file, not that log.
+    def _run(fast: bool) -> subprocess.CompletedProcess[str]:
+        # -ss BEFORE -i is the fast form: ffmpeg seeks the container rather than
+        # decoding from zero, which on a 33-minute file is milliseconds against
+        # half a minute. It is frame-accurate for containers carrying an index.
+        # -ss AFTER -i decodes forward from the start: slow, but it works on
+        # containers where the fast form finds nothing.
+        seek = ["-ss", str(t), "-i", str(media)] if fast else ["-i", str(media), "-ss", str(t)]
+        cmd = [
+            _tool("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            *seek, "-frames:v", "1", "-q:v", "2",
+        ]
+        if width is not None:
+            cmd += ["-vf", f"scale={width}:-2"]  # -2, not -1: keeps the height even
+        cmd.append(str(dest))
+        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    # Both conditions, not just the exit code. A seek that lands nowhere fails
+    # deep in the encoder -- observed exit 234 with "Nothing was written into
+    # output file" under nine lines of thread teardown -- and the useful
+    # diagnosis is the missing file, not that log.
+    proc = _run(fast=True)
     if proc.returncode != 0 or not dest.exists():
+        # Fall back to decoding forward. MPEG-TS has no global index, so the
+        # fast seek returns nothing at a timestamp the file plainly contains --
+        # measured: extract_tile_grid reads all 6 seconds of a .ts that
+        # extract_frame could not open at t=3. An index whose entries cannot be
+        # opened is worse than no index, so pay the decode rather than fail.
+        proc = _run(fast=False)
+
+    if proc.returncode != 0 or not dest.exists():
+        duration = _duration(media)
+        # Only blame the timestamp when the timestamp is actually to blame.
+        # This hint used to be appended unconditionally, which is how the
+        # MPEG-TS seek failure above hid for as long as it did.
+        hint = (
+            f"{t}s is past the end of this {duration:.1f}s recording."
+            if duration and t > duration
+            else "ffmpeg read the file but produced no frame; its log is above."
+        )
         raise MediaError(
             f"ffmpeg could not extract a frame at {t}s from {media} "
-            f"(exit {proc.returncode}):\n{proc.stderr.strip()}\n"
-            f"The usual cause is a timestamp past the end of the recording."
+            f"(exit {proc.returncode}):\n{proc.stderr.strip()}\n{hint}"
         )
     return dest
 

@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import jaano.dekho as dekho_mod
 from jaano import media
 from jaano.dekho import (
     DEFAULT_DELTA,
@@ -588,3 +589,42 @@ def test_the_cli_honours_an_explicit_output(
     assert main([str(cut_video), "-t", str(transcript), "-o", str(out)]) == 0
     assert "marks" in json.loads(out.read_text())
     assert "marks" not in json.loads(transcript.read_text())
+
+
+# --------------------------------------------------------------------------
+# The transcript is the user's file, and the mark pass writes over it
+# --------------------------------------------------------------------------
+
+
+@needs_ffmpeg
+def test_a_json_array_transcript_is_refused_not_silently_destroyed(
+    cut_video: Path, tmp_path: Path
+) -> None:
+    """The worst thing this tool could do, and it took one isinstance to stop.
+
+    `dict()` accepts any iterable of pairs. A transcript that is a JSON ARRAY of
+    objects satisfies that by accident, because each object iterates as its
+    keys -- so `[{"start": 0, "text": "hi"}]` becomes `{"start": "text"}`, and
+    mark_video wrote that back over the input. Observed before the fix: a real
+    transcript replaced by a two-key stub.
+    """
+    bad = tmp_path / "array.json"
+    original = '[{"start": 0, "text": "hello"}]'
+    bad.write_text(original)
+
+    with pytest.raises(dekho_mod.MarkError, match="expected a JSON object"):
+        mark_video(cut_video, bad, bad)
+
+    assert bad.read_text() == original, "the input must survive a rejected run"
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("payload", ['"a string"', "42", "null", "[]"])
+def test_every_non_object_transcript_is_refused(
+    cut_video: Path, tmp_path: Path, payload: str
+) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text(payload)
+    with pytest.raises(dekho_mod.MarkError):
+        mark_video(cut_video, bad, bad)
+    assert bad.read_text() == payload

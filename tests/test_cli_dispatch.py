@@ -224,3 +224,57 @@ def test_the_installed_console_script_works() -> None:
     assert proc.returncode == 0, proc.stderr
     for verb in ("transcribe", "mark", "frame"):
         assert verb in proc.stdout, proc.stdout
+
+
+# --------------------------------------------------------------------------
+# Containers the mark pass can read, the frame pass must be able to open
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def transport_stream(video: Path, tmp_path: Path) -> Path:
+    """The same content remuxed to MPEG-TS, which carries no global index."""
+    dest = tmp_path / "v.ts"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-c", "copy",
+         "-f", "mpegts", str(dest)],
+        check=True,
+    )
+    return dest
+
+
+def test_a_frame_can_be_pulled_from_a_container_with_no_index(
+    transport_stream: Path, tmp_path: Path
+) -> None:
+    """An index whose entries cannot be opened is worse than no index.
+
+    MPEG-TS has no global header, so `-ss` BEFORE `-i` seeks to nothing and
+    ffmpeg writes no frame -- at a timestamp the file plainly contains. Measured
+    before the fix: extract_tile_grid read all 6 seconds of a .ts that
+    extract_frame could not open at t=3, and the error blamed the timestamp.
+    """
+    dest = tmp_path / "f.jpg"
+    assert main(["dikhao", str(transport_stream), "6.0", "-o", str(dest)]) == 0
+    assert dest.exists()
+    assert _mean_grey(dest) > 192, "must land in the second, near-white half"
+
+
+def test_a_missing_output_directory_says_so(video: Path, tmp_path: Path) -> None:
+    """Not 'a timestamp past the end' -- that hint used to be unconditional.
+
+    Writing frames into a scratch directory it forgot to create is the mistake
+    a calling agent actually makes, and it was being pointed at the wrong
+    variable.
+    """
+    from jaano.media import MediaError
+
+    with pytest.raises(MediaError, match="does not exist"):
+        main(["dikhao", str(video), "1.0", "-o", str(tmp_path / "nope" / "f.jpg")])
+
+
+def test_past_the_end_still_says_past_the_end(video: Path, tmp_path: Path) -> None:
+    """The hint is now conditional, so prove it still fires when it should."""
+    from jaano.media import MediaError
+
+    with pytest.raises(MediaError, match="past the end of this"):
+        main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])

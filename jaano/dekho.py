@@ -49,6 +49,7 @@ __all__ = [
     "GRID_H",
     "GRID_W",
     "Mark",
+    "MarkError",
     "change_scores",
     "main",
     "mark_video",
@@ -60,7 +61,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import numpy as np
 
@@ -73,6 +74,10 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 type Payload = dict[str, Any]
+
+
+class MarkError(RuntimeError):
+    """The transcript handed to the mark pass is not one."""
 
 logger = logging.getLogger("jaano.dekho")
 
@@ -290,7 +295,20 @@ def mark_video(
     """
     if not transcript.exists():
         raise FileNotFoundError(transcript)
-    payload: Payload = json.loads(transcript.read_text())
+    # Validated here because this is where the type stops being true: json.loads
+    # returns Any, and annotating it `Payload` does not make it a dict. A
+    # transcript that is a JSON ARRAY reaches with_marks and `dict()` accepts it
+    # -- an iterable of pairs -- because each object iterates as its keys. So
+    # [{"start": 0, "text": "hi"}] silently becomes {"start": "text"} and gets
+    # written back over the user's file. Destroying the input is the worst thing
+    # this tool could do; the guard costs one isinstance.
+    loaded: Any = json.loads(transcript.read_text())
+    if not isinstance(loaded, dict):
+        raise MarkError(
+            f"{transcript} is not a transcript: expected a JSON object, found "
+            f"{type(loaded).__name__}. Pass the file `jaano suno` wrote."
+        )
+    payload: Payload = cast("Payload", loaded)
 
     tiles = media_mod.extract_tile_grid(
         media, fps=fps, width=GRID_W, height=GRID_H, on_progress=on_progress
