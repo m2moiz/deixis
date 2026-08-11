@@ -1,6 +1,6 @@
 """Score the mark scheme on any video, against a random baseline.
 
-The repeatable test. Everything deixis knows about its own change detection came
+The repeatable test. Everything jaano knows about its own change detection came
 from one 33-minute recording, which is n=1. This harness runs the shipped code
 on an arbitrary video and reports the two things that decide whether the marks
 are worth having -- with no ground truth needed, because both metrics are
@@ -40,8 +40,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deixis.frames import GRID_H, GRID_W, change_scores, select_marks
-from deixis.media import extract_tile_grid
+from jaano.dekho import GRID_H, GRID_W, change_scores, select_marks
+from jaano.media import extract_tile_grid
 
 DELTA = 8
 RANDOM_DRAWS = 30

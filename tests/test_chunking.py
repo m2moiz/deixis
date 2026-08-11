@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pytest
 
-from deixis.chunking import chunk_starts, transcribe_chunked
-from deixis.transcribe import CHUNK_S, OVERLAP_S
+from jaano.chunking import chunk_starts, transcribe_chunked
+from jaano.suno import CHUNK_S, OVERLAP_S
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
@@ -71,7 +71,7 @@ class _Transcribes(Protocol):
     mx.bfloat16` default resolves to Unknown -- mlx's core is a compiled
     extension with no stubs -- which makes the whole member partially unknown.
     Restating only the arguments used here keeps the AlignedResult return typed.
-    Mirrors deixis.chunking._Generates, which exists for the same reason.
+    Mirrors jaano.chunking._Generates, which exists for the same reason.
     """
 
     def transcribe(

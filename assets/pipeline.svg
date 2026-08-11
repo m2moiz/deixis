@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300" role="img" aria-label="jaano pipeline: a recording becomes a transcript, marks index it, and frames are pulled on demand">
+  <style>
+    .bg    { fill: #0d1117; }
+    .card  { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 10; }
+    .accent{ fill: #4a9eff; }
+    .verb  { font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #4a9eff; }
+    .head  { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #e6edf3; }
+    .body  { font: 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #8b949e; }
+    .cost  { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6e7681; }
+    .note  { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #4a9eff; }
+    .flow  { stroke: #30363d; stroke-width: 1.5; fill: none; }
+    .ondemand { stroke: #4a9eff; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  </style>
+
+  <rect class="bg" width="900" height="300"/>
+
+  <!-- the video, kept on disk -->
+  <rect class="card" x="24" y="106" width="150" height="88"/>
+  <text class="head" x="99" y="140" text-anchor="middle">recording.mov</text>
+  <text class="body" x="99" y="160" text-anchor="middle">stays on disk</text>
+  <text class="cost" x="99" y="178" text-anchor="middle">74 min · 4 GB</text>
+
+  <!-- suno -->
+  <path class="flow" d="M174 150 H 232"/>
+  <polygon class="flow" points="232,146 240,150 232,154" fill="#30363d"/>
+  <rect class="card" x="240" y="46" width="180" height="96"/>
+  <text class="verb" x="330" y="76" text-anchor="middle">suno</text>
+  <text class="head" x="330" y="98" text-anchor="middle">what was said</text>
+  <text class="body" x="330" y="118" text-anchor="middle">timestamped transcript</text>
+  <text class="cost" x="330" y="134" text-anchor="middle">13x realtime · 10k tokens</text>
+
+  <!-- dekho -->
+  <rect class="card" x="240" y="162" width="180" height="96"/>
+  <text class="verb" x="330" y="192" text-anchor="middle">dekho</text>
+  <text class="head" x="330" y="214" text-anchor="middle">when it changed</text>
+  <text class="body" x="330" y="234" text-anchor="middle">bounded list of marks</text>
+  <text class="cost" x="330" y="250" text-anchor="middle">12x realtime · 0 tokens</text>
+  <path class="flow" d="M174 150 V 210 H 232"/>
+  <polygon class="flow" points="232,206 240,210 232,214" fill="#30363d"/>
+
+  <!-- the index -->
+  <path class="flow" d="M420 94 H 470 V 150"/>
+  <path class="flow" d="M420 210 H 470 V 150"/>
+  <path class="flow" d="M470 150 H 528"/>
+  <polygon class="flow" points="528,146 536,150 528,154" fill="#30363d"/>
+  <rect class="card" x="536" y="106" width="150" height="88"/>
+  <text class="head" x="611" y="140" text-anchor="middle">transcript.json</text>
+  <text class="body" x="611" y="160" text-anchor="middle">the index</text>
+  <text class="cost" x="611" y="178" text-anchor="middle">an agent reads all of it</text>
+
+  <!-- dikhao, on demand -->
+  <path class="ondemand" d="M686 150 H 744"/>
+  <polygon points="744,146 752,150 744,154" fill="#4a9eff"/>
+  <rect class="card" x="752" y="106" width="124" height="88" stroke="#4a9eff"/>
+  <text class="verb" x="814" y="138" text-anchor="middle">dikhao</text>
+  <text class="body" x="814" y="158" text-anchor="middle">one frame,</text>
+  <text class="body" x="814" y="174" text-anchor="middle">when asked</text>
+
+  <!-- the loop back to the source -->
+  <path class="ondemand" d="M814 194 V 262 H 99 V 194"/>
+  <polygon points="95,194 99,186 103,194" fill="#4a9eff"/>
+  <text class="note" x="456" y="280" text-anchor="middle">frames are seeked out of the original, never precomputed and never cached</text>
+</svg>

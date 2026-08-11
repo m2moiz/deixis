@@ -1,4 +1,4 @@
-"""The `deixis` command: does each verb reach the thing it names?
+"""The `jaano` command: does each verb reach the thing it names?
 
 Small surface, but the one that decides whether any of this is usable. The
 measurement that justifies frame retrieval (docs/do-marks-help.md) was only
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from deixis.cli import main
+from jaano.cli import main
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -94,7 +94,7 @@ def test_frame_writes_the_image_and_prints_its_path(
     video: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dest = tmp_path / "f.jpg"
-    assert main(["frame", str(video), "1.0", "-o", str(dest)]) == 0
+    assert main(["dikhao", str(video), "1.0", "-o", str(dest)]) == 0
     assert dest.exists()
     # The path alone on stdout, so a caller can use it directly.
     assert capsys.readouterr().out.strip() == str(dest)
@@ -107,8 +107,8 @@ def test_frame_seeks_to_the_second_asked_for(video: Path, tmp_path: Path) -> Non
     """
     early = tmp_path / "early.png"
     late = tmp_path / "late.png"
-    main(["frame", str(video), "1.0", "-o", str(early)])
-    main(["frame", str(video), "6.0", "-o", str(late)])
+    main(["dikhao", str(video), "1.0", "-o", str(early)])
+    main(["dikhao", str(video), "6.0", "-o", str(late)])
     assert _mean_grey(early) < 64 < 192 < _mean_grey(late)
 
 
@@ -119,35 +119,35 @@ def test_frame_scales_to_the_requested_width(video: Path, tmp_path: Path) -> Non
     encoders refuse outright.
     """
     dest = tmp_path / "f.jpg"
-    main(["frame", str(video), "1.0", "-o", str(dest), "--width", "160"])
+    main(["dikhao", str(video), "1.0", "-o", str(dest), "--width", "160"])
     assert _dimensions(dest) == (160, 120)
 
 
 def test_width_zero_keeps_the_source_resolution(video: Path, tmp_path: Path) -> None:
     dest = tmp_path / "f.jpg"
-    main(["frame", str(video), "1.0", "-o", str(dest), "--width", "0"])
+    main(["dikhao", str(video), "1.0", "-o", str(dest), "--width", "0"])
     assert _dimensions(dest) == (320, 240)
 
 
 def test_a_bad_timestamp_surfaces_rather_than_writing_nothing(
     video: Path, tmp_path: Path
 ) -> None:
-    from deixis.media import MediaError
+    from jaano.media import MediaError
 
     with pytest.raises(MediaError, match="past the end"):
-        main(["frame", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
+        main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
 
 
 def test_the_module_entry_point_reaches_the_mark_command(
     video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`python -m deixis.frames` must still work, and must go through Typer.
+    """`python -m jaano.dekho` must still work, and must go through Typer.
 
     The direction of this reversed when the CLI moved to Typer: frames.main is
     now a shim ONTO the app rather than something the dispatcher calls. What
     matters either way is that the flags parse to the same values.
     """
-    import deixis.frames as frames_mod
+    import jaano.dekho as frames_mod
 
     seen: dict[str, object] = {}
 
@@ -176,7 +176,7 @@ def test_mark_writes_elsewhere_when_told_to(
     The no--o case above passes whether or not the option is honoured, so on
     its own it pins nothing -- a mutant that ignored -o survived it.
     """
-    import deixis.frames as frames_mod
+    import jaano.dekho as frames_mod
 
     seen: dict[str, object] = {}
 
@@ -193,7 +193,7 @@ def test_mark_writes_elsewhere_when_told_to(
 def test_the_module_entry_point_reaches_the_transcribe_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import deixis.transcribe as transcribe_mod
+    import jaano.suno as transcribe_mod
 
     seen: dict[str, object] = {}
 
@@ -218,7 +218,7 @@ def test_the_installed_console_script_works() -> None:
     directly -- and the console script is the whole point of this file.
     """
     proc = subprocess.run(
-        ["uv", "run", "deixis", "--help"], capture_output=True, text=True, check=False,
+        ["uv", "run", "jaano", "--help"], capture_output=True, text=True, check=False,
         cwd=Path(__file__).resolve().parent.parent,
     )
     assert proc.returncode == 0, proc.stderr

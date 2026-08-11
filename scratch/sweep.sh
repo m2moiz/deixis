@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the mark evaluation over every recording available on this machine.
 set -u
-cd /Users/moiz/Documents/code/deixis
+cd /Users/moiz/Documents/code/jaano
 OUT=scratch/eval/mark_eval.jsonl
 for v in "/Users/moiz/Movies/2024-11-14 17-21-27.mkv" \
          "/Users/moiz/Movies/2024-11-14 17-23-06.mkv" \

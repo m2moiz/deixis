@@ -16,19 +16,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from deixis.checkpoint import checkpoint_path_for
+from jaano.checkpoint import checkpoint_path_for
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
     from parakeet_mlx.alignment import AlignedResult
 
-    from deixis.transcribe import Progress
+    from jaano.suno import Progress
 
 pytestmark = pytest.mark.slow
 
 
 def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Path) -> None:
-    from deixis.transcribe import transcribe
+    from jaano.suno import transcribe
 
     reference_out = tmp_path / "reference.json"
     # diarize=False: these are about ASR, extraction and resume. Running the
@@ -76,7 +76,7 @@ def test_a_killed_run_resumes_and_matches(chunked_audio_path: Path, tmp_path: Pa
 def test_a_checkpoint_for_different_audio_is_ignored(
     chunked_audio_path: Path, tmp_path: Path
 ) -> None:
-    from deixis.transcribe import transcribe
+    from jaano.suno import transcribe
 
     out = tmp_path / "out.json"
     ckpt = checkpoint_path_for(out)
@@ -105,7 +105,7 @@ def test_a_checkpoint_for_different_audio_is_ignored(
 def test_no_resume_ignores_an_existing_checkpoint(
     chunked_audio_path: Path, tmp_path: Path
 ) -> None:
-    from deixis.transcribe import transcribe
+    from jaano.suno import transcribe
 
     out = tmp_path / "out.json"
     reference = transcribe(chunked_audio_path, out, resume=False, diarize=False)
@@ -128,7 +128,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
     job silently restarts from zero -- while every test above stays green,
     because a conforming .wav IS the audio handed to the model.
     """
-    from deixis.transcribe import transcribe
+    from jaano.suno import transcribe
 
     mov = tmp_path / "recording.mov"
     subprocess.run(
@@ -170,7 +170,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
     # and it must fire from the banked boundary rather than from zero.
     resumed_from: list[int] = []
 
-    from deixis import chunking
+    from jaano import chunking
 
     original = chunking.transcribe_chunked
 
@@ -183,7 +183,7 @@ def test_a_mov_resumes_even_though_its_audio_is_a_fresh_temp_wav_each_run(
         return original(model, audio_data, **kwargs)
 
     monkeypatch.setattr(chunking, "transcribe_chunked", spy)
-    caplog.set_level(logging.INFO, logger="deixis.transcribe")
+    caplog.set_level(logging.INFO, logger="jaano.suno")
     transcribe(mov, out, diarize=False)
 
     assert resumed_from == [first_next_start], (

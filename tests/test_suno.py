@@ -6,7 +6,7 @@ rate to it, and that the chunk loop, the checkpoint and the heartbeat are wired
 to each other -- the half a unit test cannot see.
 
 Only the decode is faked. The chunk boundaries, the offsets and the merge are
-the real ones from deixis/chunking.py.
+the real ones from jaano/chunking.py.
 """
 
 from __future__ import annotations
@@ -18,17 +18,17 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from conftest import FakeToken
 
-from deixis.checkpoint import checkpoint_path_for
-from deixis.diarize import DiarizationUnavailable
-from deixis.merge import Turn
-from deixis.transcribe import CHUNK_S, OVERLAP_S, Progress, transcribe
+from jaano.checkpoint import checkpoint_path_for
+from jaano.diarize import DiarizationUnavailable
+from jaano.merge import Turn
+from jaano.suno import CHUNK_S, OVERLAP_S, Progress, transcribe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from conftest import FakeModel
 
-    from deixis.media import AudioStream
+    from jaano.media import AudioStream
 
 # transcribe() probes its input for real; these tests care about the chunk loop
 # and not about ffmpeg, so they need the stub that used to be autouse.
@@ -302,13 +302,13 @@ def _spy_on_atomic_write(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """Record every path routed through the atomic writer, and really write it.
 
     Patched in TWO places on purpose. transcribe.py binds the name at module
-    import, so the patch has to land on `deixis.transcribe`; cli.py imports it
-    inside the function body, so that call re-reads `deixis.atomic` and needs
+    import, so the patch has to land on `jaano.suno`; cli.py imports it
+    inside the function body, so that call re-reads `jaano.atomic` and needs
     the source patched too. Patching one and not the other is how the failure
     path stopped being observed when the CLI moved.
     """
-    import deixis.atomic as atomic_mod
-    import deixis.transcribe as transcribe_mod
+    import jaano.atomic as atomic_mod
+    import jaano.suno as transcribe_mod
 
     seen: list[Path] = []
     real = transcribe_mod.atomic_write_text
@@ -376,7 +376,7 @@ def test_the_failure_status_is_written_through_the_atomic_writer(
     A watcher distinguishing "died" from "not started yet" reads this file in a
     tight loop, so it is the reader most likely to land inside a torn write.
     """
-    import deixis.transcribe as transcribe_mod
+    import jaano.suno as transcribe_mod
 
     status = tmp_path / "status.json"
     seen = _spy_on_atomic_write(monkeypatch)
@@ -526,7 +526,7 @@ def test_a_bug_in_diarization_is_not_swallowed(
     """An unexpected exception from the diarizer propagates.
 
     Same narrowness as the boundary itself: only DiarizationUnavailable
-    degrades. A TypeError here is a bug in deixis and must be loud.
+    degrades. A TypeError here is a bug in jaano and must be loud.
     """
     fake_parakeet(tokens=_tokens())
     fake_turns(raises=TypeError("unsupported operand"))
@@ -678,7 +678,7 @@ def test_the_diarizer_is_handed_the_extracted_wav_not_the_source(
     and it lives only until the temp directory is torn down -- so the pass has
     to run inside that window, against that file.
     """
-    from deixis import media
+    from jaano import media
 
     fake_parakeet(tokens=_tokens())
     extracted: list[Path] = []

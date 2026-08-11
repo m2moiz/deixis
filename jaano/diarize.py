@@ -32,7 +32,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, NamedTuple
 
-from deixis.merge import Turn
+from jaano.merge import Turn
 
 INSTALL_HINT = "uv sync --extra diarize"
 
@@ -59,7 +59,7 @@ class Diarization(NamedTuple):
 def speaker_turns(wav: Path) -> Diarization:
     """Diarize `wav`, or raise DiarizationUnavailable.
 
-    `wav` is the 16 kHz mono pcm_s16le file deixis.media already produced for
+    `wav` is the 16 kHz mono pcm_s16le file jaano.media already produced for
     the ASR pass, which is exactly what senko wants. The path is handed over
     rather than samples, so senko reads the rate from the header instead of both
     sides hardcoding an agreement that happens to hold today.
@@ -71,7 +71,7 @@ def speaker_turns(wav: Path) -> Diarization:
     senko = _import_senko()
 
     try:
-        # quiet=True is already the default; passed explicitly because deixis
+        # quiet=True is already the default; passed explicitly because jaano
         # renders its own progress and a second progress tree on stderr would
         # fight it.
         result = senko.Diarizer(quiet=True).diarize(str(wav))
@@ -111,7 +111,7 @@ def _import_senko() -> ModuleType:
     """Import senko, or say how to get it.
 
     Function-local, mirroring how transcribe() imports parakeet: the extra being
-    absent is the common case and must cost nothing at deixis import time.
+    absent is the common case and must cost nothing at jaano import time.
     """
     try:
         import senko

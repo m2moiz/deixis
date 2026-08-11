@@ -64,8 +64,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
-from deixis import media as media_mod
-from deixis.atomic import atomic_write_text
+from jaano import media as media_mod
+from jaano.atomic import atomic_write_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, Any]
 
-logger = logging.getLogger("deixis.frames")
+logger = logging.getLogger("jaano.dekho")
 
 # 128x84 over a 2940x1912 source is ~23x23-pixel tiles. Chosen by sweep, not by
 # taste: 32x21 was too coarse to see a form scroll, and 128x84 costs 518s of
@@ -318,15 +318,15 @@ def mark_video(
 def main(argv: list[str] | None = None) -> int:
     """Run the mark CLI.
 
-    A shim onto `deixis.cli` for the same reason as transcribe's: one
+    A shim onto `jaano.cli` for the same reason as transcribe's: one
     definition of every flag, two ways to reach it.
 
     Returns:
         A process exit code.
     """
-    from deixis.cli import run
+    from jaano.cli import run
 
-    return run(["mark", *(sys.argv[1:] if argv is None else argv)])
+    return run(["dekho", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

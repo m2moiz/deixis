@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from deixis import media
-from deixis.frames import (
+from jaano import media
+from jaano.dekho import (
     DEFAULT_DELTA,
     Mark,
     change_scores,

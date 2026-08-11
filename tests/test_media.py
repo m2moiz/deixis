@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from deixis import media
+from jaano import media
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,

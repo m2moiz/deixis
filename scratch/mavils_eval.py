@@ -1,8 +1,8 @@
-"""Score deixis' marks against MaViLS slide changes, on 22-102 minute lectures.
+"""Score jaano' marks against MaViLS slide changes, on 22-102 minute lectures.
 
 The long-form benchmark. GUI-World validated the detector on 15-second GUI clips
 with dense action; this is the other end -- hour-long recordings where the
-screen is a slide deck and a change is rare. That shape is what deixis is
+screen is a slide deck and a change is rare. That shape is what jaano is
 actually for, and until now nothing with ground truth covered it.
 
 GROUND TRUTH IS AN INTERVAL, NOT AN INSTANT. MaViLS raters mapped each
@@ -32,8 +32,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from deixis.frames import GRID_H, GRID_W, change_scores, select_marks
-from deixis.media import extract_tile_grid
+from jaano.dekho import GRID_H, GRID_W, change_scores, select_marks
+from jaano.media import extract_tile_grid
 
 DATA = Path(__file__).resolve().parent / "datasets"
 GT = DATA / "mavils_changepoints.json"

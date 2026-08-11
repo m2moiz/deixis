@@ -26,7 +26,7 @@ from typing import Any, cast
 from parakeet_mlx.alignment import AlignedToken
 from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
 
-from deixis.atomic import atomic_write_text
+from jaano.atomic import atomic_write_text
 
 SCHEMA = 1
 
@@ -152,7 +152,7 @@ class _TokenDoc(BaseModel):
 class _CheckpointDoc(BaseModel):
     """The checkpoint document, validated because a previous PROCESS wrote it.
 
-    This is the one trust boundary in deixis that reads bytes it did not
+    This is the one trust boundary in jaano that reads bytes it did not
     produce in this run. Everything else here is internal and belongs to the
     type checker.
 

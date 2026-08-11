@@ -113,7 +113,7 @@ def launch(media: Path, out: Path, status: Path, log: Path, extra: list[str]) ->
     marker = uuid.uuid4().hex
     status_marked = status.with_name(f"{status.name}.{marker}")
     argv = [
-        sys.executable, "-m", "deixis.transcribe",
+        sys.executable, "-m", "jaano.suno",
         str(media), "-o", str(out), "--status", str(status_marked), *extra,
     ]
     log.parent.mkdir(parents=True, exist_ok=True)
