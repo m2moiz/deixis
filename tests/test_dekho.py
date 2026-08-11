@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +39,7 @@ from jaano.dekho import (
     select_marks,
     with_marks,
 )
+from jaano.media import _reap, _tool  # pyright: ignore[reportPrivateUsage]
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -429,6 +432,96 @@ def test_frames_do_not_alias_one_another(cut_video: Path) -> None:
     """
     tiles = media.extract_tile_grid(cut_video, fps=1.0, width=8, height=6)
     assert not np.array_equal(tiles[0], tiles[5])
+
+
+@needs_ffmpeg
+def test_stopping_the_read_early_ends_ffmpeg_instead_of_hanging(tmp_path: Path) -> None:
+    """Reading one frame and walking away must not wedge the process pair.
+
+    That is exactly what a one-character regression on the short-read check
+    does, and it was observed: `<` to `<=` during mutation testing left ffmpeg
+    blocked in write() against a full pipe and the parent blocked in waitpid().
+    The suite hung for eight minutes, `pytest --timeout=120` could not
+    interrupt it, and the ffmpeg child outlived the run.
+
+    So this cannot be spelled "assert it does not hang" -- a regression would
+    hang this test too. It bounds the wait and then asserts the child is dead,
+    which is the pair of facts a hang cannot produce.
+    """
+    video = tmp_path / "long.mp4"
+    _run_ffmpeg(
+        "-f", "lavfi", "-i", "testsrc2=s=320x240:d=20:r=15",
+        "-pix_fmt", "yuv420p", str(video),
+    )
+    width, height = 128, 84
+    cmd = [
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-i", str(video),
+        "-vf", f"fps=10,scale={width}:{height},format=gray",
+        "-an", "-f", "rawvideo", "-",
+    ]
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc:
+        assert proc.stdout is not None
+        # One frame, then stop -- 200 frames are queued behind it, so the pipe
+        # is full and ffmpeg is blocked by the time we stop reading.
+        assert len(proc.stdout.read(width * height)) == width * height
+        started = time.monotonic()
+        _reap(proc, what="a reader that stopped after one frame", timeout=20.0)
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 20.0, f"_reap needed {elapsed:.1f}s, so the pipe was never closed"
+    assert proc.poll() is not None, "ffmpeg survived the reap"
+
+
+def test_a_child_that_ignores_a_closed_pipe_is_killed_not_awaited() -> None:
+    """The timeout, on a child for which closing the pipe is not enough.
+
+    ffmpeg dies of EPIPE, so the close alone covers it. This covers what the
+    close cannot: a writer that ignores SIGPIPE and swallows the error. Without
+    the timeout the parent waits on it forever.
+    """
+    ignores_epipe = (
+        "import os, signal\n"
+        "signal.signal(signal.SIGPIPE, signal.SIG_IGN)\n"
+        "while True:\n"
+        "    try:\n"
+        "        os.write(1, b'x' * 65536)\n"
+        "    except OSError:\n"
+        "        pass\n"
+    )
+    with subprocess.Popen([sys.executable, "-c", ignores_epipe], stdout=subprocess.PIPE) as proc:
+        started = time.monotonic()
+        with pytest.raises(media.MediaError, match="did not exit within"):
+            _reap(proc, what="a test", timeout=0.5)
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 20.0, f"_reap needed {elapsed:.1f}s against a 0.5s timeout"
+    assert proc.poll() is not None, "the child survived the reap"
+
+
+@needs_ffmpeg
+def test_a_stream_that_stops_mid_frame_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, static_video: Path
+) -> None:
+    """A truncated frame must be an error, not a quietly shorter scan.
+
+    Stands ffmpeg down for one test and puts a script in its place that emits
+    one whole 48-byte frame and then half of another -- still a real process on
+    the other end of a real pipe, which is the only part of the boundary a stub
+    would be lying about. Returning the one good frame would read downstream as
+    a one-second video.
+    """
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(f"#!/bin/sh\nprintf '{'a' * 48}'\nprintf '{'b' * 20}'\n")
+    fake.chmod(0o755)
+    real_tool = _tool
+
+    def stand_in(name: str) -> str:
+        return str(fake) if name == "ffmpeg" else real_tool(name)
+
+    monkeypatch.setattr(media, "_tool", stand_in)
+    with pytest.raises(media.MediaError, match="stopped 20 bytes into a 48-byte frame"):
+        media.extract_tile_grid(static_video, fps=1.0, width=8, height=6)
 
 
 @needs_ffmpeg
