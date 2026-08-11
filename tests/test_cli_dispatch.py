@@ -278,3 +278,51 @@ def test_past_the_end_still_says_past_the_end(video: Path, tmp_path: Path) -> No
 
     with pytest.raises(MediaError, match="past the end of this"):
         main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
+
+
+def _brightness_ramp(tmp_path: Path, container: str, gop: int = 30) -> Path:
+    """A clip whose brightness rises with time, so a frame identifies its second."""
+    master = tmp_path / "ramp.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+         "-i", "color=c=black:s=160x120:d=10:r=25",
+         "-vf", "geq=lum='clip(T*25,0,255)':cb=128:cr=128",
+         "-g", str(gop), "-pix_fmt", "yuv420p", str(master)],
+        check=True,
+    )
+    if container == "mp4":
+        return master
+    dest = tmp_path / f"ramp.{container}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(master), "-c", "copy",
+         "-f", "mpegts" if container == "ts" else container, str(dest)],
+        check=True,
+    )
+    return dest
+
+
+def test_the_frame_comes_from_the_second_that_was_asked_for(tmp_path: Path) -> None:
+    """Not merely *a* frame -- the RIGHT frame, on a container with no index.
+
+    The first fix here only fell back when the fast seek produced nothing. On an
+    MPEG-TS carrying periodic keyframes the fast seek SUCCEEDS and snaps forward
+    to the next keyframe, so `dikhao` returned the picture from t=9 when asked
+    for t=8, with exit 0 and no warning. For a tool whose promise is "the frame
+    at this timestamp", silently late is as bad as silently wrong.
+    """
+    ts = _brightness_ramp(tmp_path, "ts")
+    mp4 = tmp_path / "ramp.mp4"
+
+    for second in (3, 8):
+        want = tmp_path / f"want{second}.jpg"
+        got = tmp_path / f"got{second}.jpg"
+        # ground truth: a full accurate decode of the indexed master
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-ss", str(second),
+             "-frames:v", "1", str(want)],
+            check=True,
+        )
+        assert main(["dikhao", str(ts), str(float(second)), "-o", str(got), "--width", "0"]) == 0
+        assert abs(_mean_grey(got) - _mean_grey(want)) <= 2, (
+            f"asked for t={second}s and got a frame from elsewhere in the ramp"
+        )

@@ -248,6 +248,11 @@ def has_video(media: Path) -> bool:
     return bool(info.get("streams"))
 
 
+# How far before the target the coarse seek lands, in seconds. Big enough to
+# clear a long GOP, small enough that the exact decode after it stays cheap.
+PREROLL_S = 5.0
+
+
 def _duration(media: Path) -> float | None:
     """Seconds of video, or None if ffprobe will not say.
 
@@ -311,12 +316,32 @@ def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None
         )
 
     def _run(fast: bool) -> subprocess.CompletedProcess[str]:
-        # -ss BEFORE -i is the fast form: ffmpeg seeks the container rather than
-        # decoding from zero, which on a 33-minute file is milliseconds against
-        # half a minute. It is frame-accurate for containers carrying an index.
-        # -ss AFTER -i decodes forward from the start: slow, but it works on
-        # containers where the fast form finds nothing.
-        seek = ["-ss", str(t), "-i", str(media)] if fast else ["-i", str(media), "-ss", str(t)]
+        # THE SEEK, and why it is two -ss options rather than one.
+        #
+        # -ss BEFORE -i seeks the container instead of decoding from zero: on a
+        # 33-minute file that is milliseconds against half a minute. But on a
+        # container with no reliable index it either finds nothing (raw h264,
+        # long-GOP MPEG-TS) or -- worse -- snaps to the next keyframe and
+        # returns a frame from the WRONG MOMENT with exit 0 and no warning.
+        # Measured on an MPEG-TS at t=8s: the fast form returned the picture
+        # from t=9. For a tool whose entire promise is "the frame at this
+        # timestamp", silently late is the same class of failure as silently
+        # wrong.
+        #
+        # -ss AFTER -i decodes forward and is exact, but from zero.
+        #
+        # So: coarse-seek to PREROLL seconds early, then decode the remainder
+        # exactly. Bounded work (at most PREROLL seconds of decode) at any depth
+        # into the file, and accurate. Verified against a brightness ramp on an
+        # MPEG-TS -- all ten whole seconds matched a full accurate decode, where
+        # the fast form drifted.
+        if fast:
+            coarse = max(0.0, t - PREROLL_S)
+            seek = ["-ss", str(coarse), "-i", str(media), "-ss", str(t - coarse)]
+        else:
+            # Last resort: decode from the start. Only reached when even the
+            # coarse seek lands nowhere.
+            seek = ["-i", str(media), "-ss", str(t)]
         cmd = [
             _tool("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
             *seek, "-frames:v", "1", "-q:v", "2",
