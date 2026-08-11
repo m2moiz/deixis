@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Make a long screen recording answerable: a timestamped transcript indexes the video, frames are retrieved on demand."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 dependencies = [
-    "numba>=0.61",
     # Direct since frames.py: it was already here transitively, but a module
     # that imports it is a module that depends on it, and an indirect
     # dependency can vanish under an upstream release with no warning.
@@ -25,6 +26,13 @@ dependencies = [
 [project.scripts]
 jaano = "jaano.cli:main"
 
+# An installed copy has no repository beside it. Without these, `pip show jaano`
+# on someone else's machine points nowhere.
+[project.urls]
+Homepage = "https://github.com/m2moiz/jaano"
+Source = "https://github.com/m2moiz/jaano"
+Issues = "https://github.com/m2moiz/jaano/issues"
+
 [project.optional-dependencies]
 diarize = [
     "senko>=0.1.0,<0.2",
@@ -43,6 +51,30 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Hatchling's default sdist is "everything git does not ignore", and that is not
+# what this repo is. It swept in a 1.29 MB graphify-out/ and Dolt backups
+# against 11 files of package, and it swept in .codegraph -- an absolute symlink
+# into ~/.omo, which uv refuses to unpack, so `uv build` failed outright. Only
+# `uv build --wheel` worked, which is why the git install kept working and the
+# breakage went unseen. List what ships instead of subtracting what does not.
+[tool.hatch.build.targets.sdist]
+
+# Leading slashes are load-bearing: these are gitignore-style patterns, so a
+# bare `README.md` matched `.beads/README.md` too and pulled the tracker's docs
+# into the archive. Anchor each one to the repo root.
+include = [
+    "/jaano",
+    "/tests",
+    "/docs",
+    "/README.md",
+    "/LICENSE",
+    "/justfile",
+    "/pyproject.toml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["jaano"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

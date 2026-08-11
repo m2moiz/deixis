@@ -42,3 +42,9 @@ dist/
 # mutmut writes its mutants and results here.
 mutants/
 .mutmut-cache
+
+# Machine-local tool output. .codegraph is an ABSOLUTE symlink into ~/.omo:
+# committing it, or letting a build sweep it in, produces an archive that
+# cannot be unpacked anywhere but this laptop. graphify-out/ is generated.
+.codegraph
+graphify-out/
