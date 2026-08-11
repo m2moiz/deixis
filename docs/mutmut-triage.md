@@ -1,7 +1,7 @@
 # Surviving mutants, and why each one is accepted
 
-`just mutate` mutates `deixis/merge.py`, `deixis/checkpoint.py` and
-`deixis/atomic.py` and reports which mutations the test suite fails to notice.
+`just mutate` mutates `jaano/merge.py`, `jaano/checkpoint.py` and
+`jaano/atomic.py` and reports which mutations the test suite fails to notice.
 Coverage proves a line executed. This proves something asserted on what it did.
 
 ```

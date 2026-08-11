@@ -2,7 +2,7 @@
 
 from_pretrained downloads and loads ~2.4 GB of weights, which no unit test can
 afford. transcribe() imports it inside the function body, so there is no
-deixis.transcribe.from_pretrained attribute to patch -- the target is the
+jaano.suno.from_pretrained attribute to patch -- the target is the
 source module, parakeet_mlx.from_pretrained, which the function-local import
 re-reads on every call.
 """
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from parakeet_mlx import DecodingConfig
     from parakeet_mlx.alignment import AlignedResult
 
-    from deixis.media import AudioStream
-    from deixis.merge import Turn
+    from jaano.media import AudioStream
+    from jaano.merge import Turn
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCE_AUDIO = REPO / "scratch" / "meeting.wav"
@@ -74,7 +74,7 @@ class FakeToken:
 class FakeModel:
     """Stands in for parakeet_mlx.parakeet.BaseParakeet.
 
-    Mirrors what deixis.chunking.transcribe_chunked touches:
+    Mirrors what jaano.chunking.transcribe_chunked touches:
     preprocessor_config.sample_rate, preprocessor_config.hop_length, and
     generate(mel, decoding_config=...). The chunk loop, the offsets and the
     merge are the REAL ones -- only the decode is faked -- so these tests
@@ -99,7 +99,7 @@ class FakeModel:
         )
         self.tokens = tokens if tokens is not None else []
         self.total_samples = int(audio_s * sample_rate)
-        # Whatever deixis.chunking.get_logmel was stubbed to return -- the
+        # Whatever jaano.chunking.get_logmel was stubbed to return -- the
         # tests assert on the SLICES handed to generate(), never on their
         # contents, so the element type is deliberately open.
         self.mels: list[Any] = []
@@ -109,8 +109,8 @@ class FakeModel:
     ) -> list[AlignedResult]:
         """Decode `self.tokens` as one chunk, ignoring the mel entirely.
 
-        Signature-compatible with deixis.chunking._Generates, which is the
-        Protocol naming the only method deixis calls on a model. `mel` is Any
+        Signature-compatible with jaano.chunking._Generates, which is the
+        Protocol naming the only method jaano calls on a model. `mel` is Any
         for the same reason it is there: mlx's array type is a compiled
         extension with no stubs.
         """
@@ -160,7 +160,7 @@ def fake_parakeet(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeModel]:
 
         monkeypatch.setattr("parakeet_mlx.from_pretrained", from_pretrained)
         monkeypatch.setattr("parakeet_mlx.audio.load_audio", load_audio)
-        monkeypatch.setattr("deixis.chunking.get_logmel", get_logmel)
+        monkeypatch.setattr("jaano.chunking.get_logmel", get_logmel)
         return model
 
     return install
@@ -202,14 +202,14 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[float]], Non
                 last[0] = next(it)
             return last[0]
 
-        monkeypatch.setattr("deixis.transcribe.time.monotonic", monotonic)
+        monkeypatch.setattr("jaano.suno.time.monotonic", monotonic)
 
     return install
 
 
 def _probe(path: Path) -> AudioStream:
     """Stand-in for media.probe: always an already-conforming 16k mono wav."""
-    from deixis.media import AudioStream
+    from jaano.media import AudioStream
 
     return AudioStream(
         codec_name="pcm_s16le", sample_rate=16_000, channels=1, duration_s=4427.028
@@ -235,7 +235,7 @@ def already_extracted_media(monkeypatch: pytest.MonkeyPatch) -> None:
     the stub asks for it with
     `pytestmark = pytest.mark.usefixtures("already_extracted_media")`.
     """
-    from deixis import media
+    from jaano import media
 
     monkeypatch.setattr(
         media,
@@ -251,7 +251,7 @@ def fake_turns(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[Path]]:
     """Install a stand-in for the diarization pass.
 
     Loading senko costs ~12s of CoreML model load, so no fast test may reach
-    the real one. transcribe() imports deixis.diarize inside the function body
+    the real one. transcribe() imports jaano.diarize inside the function body
     for the same reason it imports parakeet there -- the extra is usually
     absent -- so the patch target is the source module, whose attribute the
     function-local import re-reads on every call.
@@ -264,7 +264,7 @@ def fake_turns(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[Path]]:
     `then` runs inside the faked diarization call, which is where a test can
     observe what was already on disk when the pass began.
     """
-    from deixis.diarize import Diarization
+    from jaano.diarize import Diarization
 
     def install(
         turns: list[Turn] | None = None,
@@ -286,7 +286,7 @@ def fake_turns(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[Path]]:
                 provenance="senko 0.0.0-fake",
             )
 
-        monkeypatch.setattr("deixis.diarize.speaker_turns", speaker_turns)
+        monkeypatch.setattr("jaano.diarize.speaker_turns", speaker_turns)
         return calls
 
     return install
@@ -306,7 +306,7 @@ def no_real_diarizer(fake_turns: Callable[..., list[Path]]) -> None:
     `pytestmark = pytest.mark.usefixtures("no_real_diarizer")`, and any test in
     it that actually wants labels calls `fake_turns` itself, replacing this.
     """
-    from deixis.diarize import DiarizationUnavailable
+    from jaano.diarize import DiarizationUnavailable
 
     fake_turns(raises=DiarizationUnavailable("no diarizer in this test"))
 
@@ -334,6 +334,6 @@ def chunked_audio_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def model_id() -> str:
-    from deixis.transcribe import DEFAULT_MODEL
+    from jaano.suno import DEFAULT_MODEL
 
     return DEFAULT_MODEL

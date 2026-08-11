@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-# _make_chunk_callback is private to deixis.transcribe by design -- it is a
+# _make_chunk_callback is private to jaano.suno by design -- it is a
 # construction detail with no public caller -- but its sample-to-second
 # conversion is exactly what this module exists to pin, so the test must reach
 # it directly. Renaming it public would change the source, not the test.
-from deixis.transcribe import Progress, _make_chunk_callback  # pyright: ignore[reportPrivateUsage]
+from jaano.suno import Progress, _make_chunk_callback  # pyright: ignore[reportPrivateUsage]
 
 RATE = 16_000
 REAL_DONE_S = 750.0

@@ -1,6 +1,6 @@
 # A resume gate that cannot silently pass
 
-Design for the end-to-end verification of `--resume` in `deixis/transcribe.py`
+Design for the end-to-end verification of `--resume` in `jaano/suno.py`
 (HEAD `f081231`, branch `feat/transcription`).
 
 Prototype: `scratch/resume_gate.py` — written, executed, output pasted in
@@ -18,7 +18,7 @@ feature that does nothing at all.
 The harness under review:
 
 ```bash
-uv run python -m deixis.transcribe scratch/meeting.wav -o scratch/gate_resumed.json --no-resume >log 2>&1 &
+uv run python -m jaano.suno scratch/meeting.wav -o scratch/gate_resumed.json --no-resume >log 2>&1 &
 PID=$!
 sleep 45
 kill -9 $PID
@@ -129,7 +129,7 @@ with four independent observations.**
 
 ```python
 proc = subprocess.Popen(
-    [sys.executable, "-m", "deixis.transcribe", str(media), "-o", str(out),
+    [sys.executable, "-m", "jaano.suno", str(media), "-o", str(out),
      "--status", str(status_marked)],
     cwd=REPO, stdout=fh, stderr=subprocess.STDOUT,
     start_new_session=True,
@@ -257,7 +257,7 @@ chunk index regardless of length.
 Real run, `scratch/clip360.wav`, warm model cache:
 
 ```
-$ time uv run python -m deixis.transcribe scratch/clip360.wav -o /tmp/probe.json --no-resume
+$ time uv run python -m jaano.suno scratch/clip360.wav -o /tmp/probe.json --no-resume
    running [########----------------]  33%  2:00/6:00 audio  elapsed 0:07  eta 0:14  16.0x
    running [###############---------]  62%  3:45/6:00 audio  elapsed 1:10  eta 0:42  3.2x
    running [######################--]  92%  5:30/6:00 audio  elapsed 2:41  eta 0:14  2.0x

@@ -1,12 +1,17 @@
-"""The `deixis` command -- one Typer app, three verbs.
+"""The `jaano` command -- one Typer app, three verbs.
 
-    deixis transcribe recording.mov -o transcript.json
-    deixis mark       recording.mov -t transcript.json
-    deixis frame      recording.mov 431.5 -o frame.jpg
+    jaano suno   recording.mov -o transcript.json    # listen
+    jaano dekho  recording.mov -t transcript.json    # look
+    jaano dikhao recording.mov 431.5 -o frame.jpg    # show me
 
-This file owns ALL argument parsing for the project. `deixis.transcribe.main`
-and `deixis.frames.main` are thin shims onto the commands below, so
-`python -m deixis.transcribe` keeps working and there is exactly one definition
+Urdu imperatives, and they are not decoration: they name the three things the
+tool does in the order it does them. Suno gives you what was said, dekho gives
+you when the picture changed, dikhao gives you the picture itself. Jaano -- know
+-- is what you get from all three, which is why it is the command.
+
+This file owns ALL argument parsing for the project. `jaano.suno.main`
+and `jaano.dekho.main` are thin shims onto the commands below, so
+`python -m jaano.suno` keeps working and there is exactly one definition
 of every flag rather than one per entry point.
 
 WHY standalone_mode, AND WHY THE SystemExit CATCH. Typer's other calling
@@ -46,9 +51,9 @@ import typer
 # cannot appear in --help: the first version of this file used 0 as a "not
 # given" sentinel and Typer duly advertised `[default: 0]` for a budget whose
 # real default is 150. Measured cost of the import: ~90ms, inside the noise of
-# `deixis --help` at 120-200ms. The heavy workers below stay lazy.
-from deixis.frames import DEFAULT_BUDGET, DEFAULT_DELTA, DEFAULT_FPS, DEFAULT_MIN_GAP_S
-from deixis.transcribe import DEFAULT_MODEL
+# `jaano --help` at 120-200ms. The heavy workers below stay lazy.
+from jaano.dekho import DEFAULT_BUDGET, DEFAULT_DELTA, DEFAULT_FPS, DEFAULT_MIN_GAP_S
+from jaano.suno import DEFAULT_MODEL
 
 app = typer.Typer(
     add_completion=False,
@@ -77,8 +82,8 @@ def _stderr_logger(name: str) -> None:
     logger.propagate = False
 
 
-@app.command()
-def transcribe(
+@app.command("suno")
+def suno(
     media: Annotated[Path, typer.Argument(help="video or audio file; a .mov is the normal case")],
     out: Annotated[Path, typer.Option("--out", "-o", help="where the transcript JSON goes")],
     model: Annotated[str, typer.Option("--model", help="the ASR model")] = DEFAULT_MODEL,
@@ -96,12 +101,12 @@ def transcribe(
         typer.Option("--require-diarize", help="fail rather than degrade if labelling cannot run"),
     ] = False,
 ) -> int:
-    """Transcribe media to a timestamped index."""
-    from deixis.atomic import atomic_write_text
-    from deixis.transcribe import Progress, clock, render_bar
-    from deixis.transcribe import transcribe as run_transcribe
+    """Listen: transcribe media to a timestamped index."""
+    from jaano.atomic import atomic_write_text
+    from jaano.suno import Progress, clock, render_bar
+    from jaano.suno import transcribe as run_transcribe
 
-    _stderr_logger("deixis.transcribe")
+    _stderr_logger("jaano.suno")
 
     # \r only rewrites the line on a terminal; when piped, print one line per
     # chunk instead so a captured log stays readable rather than becoming one
@@ -154,8 +159,8 @@ def transcribe(
     return 0
 
 
-@app.command()
-def mark(
+@app.command("dekho")
+def dekho(
     media: Annotated[Path, typer.Argument(help="the video the transcript indexes")],
     transcript: Annotated[
         Path, typer.Option("--transcript", "-t", help="transcript to add marks to")
@@ -175,10 +180,10 @@ def mark(
         float, typer.Option("--min-gap", help="seconds two marks must be apart")
     ] = DEFAULT_MIN_GAP_S,
 ) -> int:
-    """Mark the moments a recording's picture changed most."""
-    from deixis.frames import logger, mark_video
+    """Look: mark the moments the picture changed most."""
+    from jaano.dekho import logger, mark_video
 
-    _stderr_logger("deixis.frames")
+    _stderr_logger("jaano.dekho")
     tty = sys.stderr.isatty()
     started = time.monotonic()
 
@@ -213,8 +218,8 @@ def mark(
     return 0
 
 
-@app.command()
-def frame(
+@app.command("dikhao")
+def dikhao(
     video: Annotated[Path, typer.Argument(help="the recording to seek into")],
     seconds: Annotated[float, typer.Argument(help="offset into the recording")],
     out: Annotated[Path, typer.Option("--out", "-o", help=".jpg is what a vision model wants")],
@@ -229,13 +234,13 @@ def frame(
         # string in fifteen (docs/vlm-legibility.md).
     ] = 1500,
 ) -> int:
-    """Write the frame at a given second of a video to an image file."""
-    from deixis.media import extract_frame
+    """Show me: write the frame at a given second to an image file."""
+    from jaano.media import extract_frame
 
     dest = extract_frame(video, seconds, out, width=width or None)
     # The path alone on stdout, and nothing else. The caller is usually a
     # program, and a path on stdout composes:
-    #     open "$(deixis frame rec.mov 431.5 -o /tmp/f.jpg)"
+    #     open "$(jaano frame rec.mov 431.5 -o /tmp/f.jpg)"
     print(dest)
     return 0
 
@@ -257,13 +262,13 @@ def run(argv: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for the `deixis` console script.
+    """Entry point for the `jaano` console script.
 
     Returns:
         A process exit code.
     """
     args = list(sys.argv[1:] if argv is None else argv)
-    # `deixis help` as well as `deixis --help`. Typer offers no `help` command
+    # `jaano help` as well as `jaano --help`. Typer offers no `help` command
     # and the bare word is what people type.
     if args and args[0] == "help":
         args = ["--help"]

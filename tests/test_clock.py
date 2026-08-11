@@ -11,7 +11,7 @@ import pytest
 # Public since the CLI moved to Typer: cli.py renders the closing summary and
 # needs the same formatting as the progress bar, so a second module depends on
 # it and the leading underscore had stopped being true.
-from deixis.transcribe import clock
+from jaano.suno import clock
 
 
 @pytest.mark.parametrize(

@@ -94,7 +94,7 @@ happens after the change, while the screen sits still.
 
 ## 2b. MaViLS — the long-form case, 34 to 85 minutes
 
-GUI-World clips are 15 seconds. deixis is for hour-long recordings, and that
+GUI-World clips are 15 seconds. jaano is for hour-long recordings, and that
 shape had no ground truth until now. [MaViLS](https://github.com/andererka/mavils)
 (Interspeech 2024) is 24 lectures whose transcribed sentences were mapped to
 slide numbers by human raters; five of them are public YouTube videos.

@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from deixis import media
-from deixis.transcribe import CHUNK_S, transcribe
+from jaano import media
+from jaano.suno import CHUNK_S, transcribe
 
 pytestmark = [
     pytest.mark.slow,
@@ -108,9 +108,9 @@ def test_the_temp_wav_does_not_outlive_the_run(
     spoken_clip: tuple[Path, Path], tmp_path: Path
 ) -> None:
     mov, _ = spoken_clip
-    before = set(Path(tempfile.gettempdir()).glob("deixis-*"))
+    before = set(Path(tempfile.gettempdir()).glob("jaano-*"))
     transcribe(mov, tmp_path / "out.json", diarize=False)
-    assert set(Path(tempfile.gettempdir()).glob("deixis-*")) == before
+    assert set(Path(tempfile.gettempdir()).glob("jaano-*")) == before
 
 
 def test_status_file_shows_every_phase(chunked_clip: Path, tmp_path: Path) -> None:

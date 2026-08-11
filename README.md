@@ -1,18 +1,72 @@
-# deixis
+<p align="center">
+  <img src="assets/banner.png" alt="Dekho Suno Jaano" width="800">
+</p>
 
-[![ci](https://github.com/m2moiz/deixis/actions/workflows/ci.yml/badge.svg)](https://github.com/m2moiz/deixis/actions/workflows/ci.yml)
-[![python](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
-[![platform](https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey)](#requirements)
+<p align="center">
+<a href="https://github.com/m2moiz/jaano/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/m2moiz/jaano/actions/workflows/ci.yml/badge.svg"></a>
+<a href="pyproject.toml"><img alt="python" src="https://img.shields.io/badge/python-3.12+-blue"></a>
+<a href="#requirements"><img alt="platform" src="https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey"></a>
+<a href="docs/generalisation.md"><img alt="validated" src="https://img.shields.io/badge/validated-834%20recordings%20%C2%B7%20p%3D3.5e--94-brightgreen"></a>
+<a href="docs/do-marks-help.md"><img alt="blind graded" src="https://img.shields.io/badge/blind%20graded-16%2F16-brightgreen"></a>
+</p>
 
-**Make a long screen recording answerable.** deixis turns a recording into a
-timestamped, speaker-labelled transcript that acts as an *index into the video*
-— so an agent can read cheap text, notice a moment that only makes sense
-visually, and ask for that exact instant.
+---
 
-*Deixis* is the linguistic term for words that only mean something in context —
-*this*, *here*, *that one*. It is exactly what breaks an audio-only transcript of
-a screen-share: **"see this column here"** is the most information-dense sentence
-in the meeting and, as text, it is worthless. The referent was on screen.
+**An hour of screen recording, made answerable.** `jaano` turns a recording into
+a timestamped transcript that acts as an *index into the video* — so an agent
+reads cheap text, notices a moment that only makes sense visually, and pulls
+that exact frame.
+
+```bash
+jaano suno   meeting.mov -o transcript.json        # suno   -- listen
+jaano dekho  meeting.mov -t transcript.json        # dekho  -- look
+jaano dikhao meeting.mov 431.5 -o frame.jpg        # dikhao -- show me
+```
+
+Three Urdu imperatives, in the order the tool works:
+
+| | | |
+|---|---|---|
+| <div dir="rtl">سنو</div> | `suno` | *listen* — what was said, and when |
+| <div dir="rtl">دیکھو</div> | `dekho` | *look* — when the picture changed |
+| <div dir="rtl">دکھاؤ</div> | `dikhao` | *show me* — the picture itself |
+| <div dir="rtl">جانو</div> | `jaano` | *know* — what you get from all three, and so the command |
+
+<p align="center">
+  <img src="assets/pipeline.svg" alt="A recording becomes a transcript and a list of marks; frames are seeked out of the original on demand" width="900">
+</p>
+
+## The problem
+
+> *"See **this** column **here**?"*
+
+That is the most information-dense sentence in the meeting, and as text it is
+worthless. The referent was on screen and the transcript threw it away. Words
+that only mean something in context are the exact failure mode of an audio-only
+transcript of a screen-share.
+
+Feeding the whole video to a vision model is the other extreme: a 74-minute
+recording is **444,000 tokens** on a native-video model against **10,000** for
+its transcript — 44× the cost to answer a question that is usually about one
+second of it.
+
+`jaano` keeps the video on disk as a random-access resource and spends tokens
+only where the transcript says something visual happened.
+
+## Does it work? Measured, not asserted
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Does frame retrieval help an agent? | **5/16 → 16/16** on blind-graded questions | [do-marks-help.md](docs/do-marks-help.md) |
+| Do the change marks beat chance? | **701/834** third-party recordings, p = 3.5e-94 | [generalisation.md](docs/generalisation.md) |
+| On hour-long recordings? | **81%** of slide changes caught within 2s, vs 42% random | [generalisation.md](docs/generalisation.md) |
+| Can a small local VLM read a screen? | **No** — 47% recall, 18 fabrications | [vlm-legibility.md](docs/vlm-legibility.md) |
+| Where does it fail? | A camera pointed at a screen. Documented, not hidden | [generalisation.md](docs/generalisation.md) |
+
+Every number came from a command. Three change detectors were built, measured
+and thrown away before the one that shipped — [that history is written
+down](docs/visual-marks.md), because the ones that looked like they worked are
+the interesting part.
 
 ---
 
@@ -20,14 +74,10 @@ in the meeting and, as text, it is worthless. The referent was on screen.
 
 | | |
 |---|---|
-| **Transcript half** | working — ingestion, chunked ASR, resume, optional speaker labels |
-| **Visual marks** | working — the moments the picture changed. [Validated on 834 third-party recordings and five hour-long lectures](docs/generalisation.md), but [worth little on their own](docs/do-marks-help.md) for answering questions |
-| **Frame retrieval** | working — `deixis frame video 431.5 -o f.jpg`. This is what actually makes a recording answerable: 5/16 → 16/16 on a blind-graded question set |
-| **Frame description** | **not built**, and now blocked on a *measured* finding rather than an unmeasured one. See [Roadmap](#roadmap) |
-
-So today deixis is a resumable, observable transcriber that also tells you
-*when* to look. The half that says *what* you would see — answering "see this
-column here" — is the work ahead.
+| **Suno — transcript** | working. Chunked ASR, resume, optional speaker labels, ~13× realtime |
+| **Dekho — change marks** | working. [Validated on 834 recordings and five hour-long lectures](docs/generalisation.md) — though [worth little on their own](docs/do-marks-help.md) for answering questions |
+| **Dikhao — frame retrieval** | working. The step that actually makes a recording answerable |
+| **Frame description** | **not built**, blocked on a *measured* finding rather than a guess. See [Roadmap](#roadmap) |
 
 ---
 
@@ -45,8 +95,8 @@ column here" — is the work ahead.
 ## Install
 
 ```bash
-git clone https://github.com/m2moiz/deixis
-cd deixis
+git clone https://github.com/m2moiz/jaano
+cd jaano
 uv sync                      # transcript only
 uv sync --extra diarize      # + speaker labels (see the caveats below)
 ```
@@ -56,32 +106,24 @@ Model weights (~2.4 GB) download on first run and are cached by
 
 ## Usage
 
-One command, three verbs:
+`jaano dikhao` prints the path it wrote and nothing else, so it composes:
 
 ```bash
-deixis transcribe recording.mov -o transcript.json   # what was said, when
-deixis mark       recording.mov -t transcript.json   # when the picture changed
-deixis frame      recording.mov 431.5 -o frame.jpg   # the picture at that moment
+open "$(jaano dikhao recording.mov 431.5 -o /tmp/f.jpg)"
 ```
 
-`deixis frame` prints the path it wrote and nothing else, so it composes:
-
-```bash
-open "$(deixis frame recording.mov 431.5 -o /tmp/f.jpg)"
-```
-
-**If you point an agent at a recording, tell it about `deixis frame`.** That one
+**If you point an agent at a recording, tell it about `jaano dikhao`.** That one
 verb is the difference between an agent reconstructing the screen from what was
-said about it and an agent looking: measured 5/16 against 16/16 on a
+said about it and an agent *looking*: measured 5/16 against 16/16 on a
 blind-graded question set ([docs/do-marks-help.md](docs/do-marks-help.md)).
 
-`python -m deixis.transcribe` and `python -m deixis.frames` still work and are
-the same code.
+`python -m jaano.suno` and `python -m jaano.dekho` still work and are the same
+code.
 
-### Transcription
+### Suno — transcription
 
 ```bash
-deixis transcribe recording.mov -o transcript.json
+jaano suno recording.mov -o transcript.json
 ```
 
 Progress renders live on stderr:
@@ -103,7 +145,7 @@ Progress renders live on stderr:
 and poll the heartbeat:
 
 ```bash
-uv run python -m deixis.transcribe meeting.mov -o out.json --status run.json &
+uv run python -m jaano.suno meeting.mov -o out.json --status run.json &
 jq -r '"\(.state) \(.fraction * 100 | floor)% eta \(.eta_s)s"' run.json
 ```
 
@@ -115,14 +157,14 @@ chunk. Re-running the same command resumes from it; a changed model, source
 file, or chunk geometry invalidates it automatically and the run starts over
 rather than reusing tokens that describe something else.
 
-### Visual marks
+### Dekho — change marks
 
 A second pass adds the timestamps where the picture changed most. It is
 separate because the transcript arrives at ~13x realtime and this decodes every
 sampled frame at ~10x, so coupling them would make the fast half wait:
 
 ```bash
-uv run python -m deixis.frames recording.mov -t transcript.json
+uv run python -m jaano.dekho recording.mov -t transcript.json
 ```
 
 | Flag | |
@@ -139,10 +181,10 @@ knowing about, and it is not a preference — three threshold-based detectors we
 built and measured against a real recording before this one, and all three
 failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
 
-### Retrieving a frame
+### Dikhao — retrieving a frame
 
 ```bash
-deixis frame recording.mov 431.5 -o frame.jpg [--width 1500]
+jaano dikhao recording.mov 431.5 -o frame.jpg [--width 1500]
 ```
 
 | Flag | |
@@ -156,7 +198,7 @@ taste: a full 2940px frame is ~776 KB as a JPEG, more than most vision APIs
 want, and legibility stopped improving well below that — 700px to 1600px moved
 recall by one string in fifteen ([docs/vlm-legibility.md](docs/vlm-legibility.md)).
 
-Also available as `deixis.media.extract_frame(video, t, dest, width=...)`.
+Also available as `jaano.media.extract_frame(video, t, dest, width=...)`.
 
 ## Output
 
@@ -177,7 +219,7 @@ Also available as `deixis.media.extract_frame(video, t, dest, width=...)`.
     }
   ],
 
-  // added by `python -m deixis.frames`; absent until that pass has run
+  // added by `python -m jaano.dekho`; absent until that pass has run
   // t    = when the picture changed (the boundary)
   // look = the frame worth extracting: the middle of the stretch that screen was up
   "marks": [{"t": 417.0, "score": 2841, "look": 431.5}],
@@ -280,7 +322,7 @@ target hardware and on `parakeet-mlx` exposing per-token alignment directly.
 
 **Chunking is not optional at meeting length.** `parakeet-mlx` defaults
 `chunk_duration` to `None`, which feeds the whole file to Metal in one buffer —
-an hour of audio asks for ~14.5 GB against a ~9.5 GB max buffer and dies. deixis
+an hour of audio asks for ~14.5 GB against a ~9.5 GB max buffer and dies. jaano
 drives the chunk loop itself at 120s with 15s overlap, which is also what makes
 per-chunk progress and resume possible.
 
@@ -301,9 +343,9 @@ model the plain ONNX Runtime CPU kernels win outright. General lesson: a
 triple-digit partition count in an EP load warning means the accelerator is
 hurting you — benchmark against CPU before assuming otherwise.
 
-**Ingestion: deixis runs ffmpeg itself, though it does not have to.**
+**Ingestion: jaano runs ffmpeg itself, though it does not have to.**
 `parakeet-mlx` already shells out to ffmpeg for any input, so a `.mov` would
-load without a line of code here. It is done in `deixis/media.py` anyway for
+load without a line of code here. It is done in `jaano/media.py` anyway for
 two things that call cannot give: progress during the tens of seconds an
 hour-long 4 GB recording takes to demux (~1000x realtime, measured on a
 74-minute wav), and an error you can act on — parakeet's own failure surfaces
@@ -439,11 +481,11 @@ are OCR-based, which is the approach this tool rejects.
 ## Layout
 
 ```
-deixis/            the package
-  media.py         ffmpeg ingestion, with progress and actionable errors
-  transcribe.py    the CLI and the orchestration
-  cli.py           the `deixis` command: transcribe | mark | frame
-  frames.py        the moments the picture changed, ranked under a budget
+jaano/            the package
+  cli.py           the `jaano` command: suno | dekho | dikhao
+  suno.py          suno   -- ASR orchestration, chunking, resume
+  dekho.py         dekho  -- the moments the picture changed, ranked under a budget
+  media.py         ffmpeg: audio out, tile grids out, dikhao frames out
   chunking.py      the chunk loop parakeet-mlx does not provide
   checkpoint.py    resume, and the validated boundary that reads it
   merge.py         token-vote speaker labelling

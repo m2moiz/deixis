@@ -34,7 +34,7 @@ class GateModule(Protocol):
 
     Two names, which is the whole contract: the callable that runs the gate and
     the exception it raises. Writing it down is the same discipline as the
-    parakeet Protocol in deixis/chunking.py -- a dynamically loaded module is
+    parakeet Protocol in jaano/chunking.py -- a dynamically loaded module is
     otherwise Unknown to the type checker, and `Any` would hide a renamed
     `gate()` until the slow lane ran.
     """

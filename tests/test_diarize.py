@@ -18,10 +18,10 @@ from typing import Any, Protocol, cast
 
 import pytest
 
-from deixis.diarize import Diarization, DiarizationUnavailable, speaker_turns
-from deixis.merge import Turn
+from jaano.diarize import Diarization, DiarizationUnavailable, speaker_turns
+from jaano.merge import Turn
 
-# senko ships no type information, so its result arrives as Any -- deixis.diarize
+# senko ships no type information, so its result arrives as Any -- jaano.diarize
 # pins the same shape at its own boundary (Sequence[Mapping[str, Any]]). The
 # stand-in mirrors that: the keys are known, the values are whatever senko put
 # there. None is what senko returns when its VAD finds no speech at all.
@@ -203,7 +203,7 @@ def test_labels_map_back_to_senkos_names(fake_senko: SenkoInstaller) -> None:
 
 
 def test_the_diarizer_is_asked_to_stay_quiet(fake_senko: SenkoInstaller) -> None:
-    # deixis renders its own progress; a second progress tree on stderr would
+    # jaano renders its own progress; a second progress tree on stderr would
     # fight the bar.
     module = fake_senko(
         lambda wav_path: {"merged_segments": [{"speaker": "S", "start": 0.0, "end": 1.0}]}

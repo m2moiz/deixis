@@ -1,5 +1,5 @@
 [project]
-name = "deixis"
+name = "jaano"
 version = "0.1.0"
 description = "Make a long screen recording answerable: a timestamped transcript indexes the video, frames are retrieved on demand."
 readme = "README.md"
@@ -19,11 +19,11 @@ dependencies = [
 ]
 
 # The reachable surface. Until this existed, pulling a frame out of a video
-# meant importing deixis.media from Python -- and frame retrieval is the step
+# meant importing jaano.media from Python -- and frame retrieval is the step
 # measured to take an agent from 5/16 to 16/16 (docs/do-marks-help.md). A
 # capability nothing can invoke is a capability nobody has.
 [project.scripts]
-deixis = "deixis.cli:main"
+jaano = "jaano.cli:main"
 
 [project.optional-dependencies]
 diarize = [
@@ -53,7 +53,7 @@ addopts = "-q --strict-markers --timeout=120 -m 'not slow'"
 #
 # ResourceWarning is deliberately NOT filtered. It is off by default in Python,
 # so it only shows under `-W default` -- which is exactly how the unclosed
-# ffmpeg pipe in media.extract_audio was found (deixis-3du, now fixed and
+# ffmpeg pipe in media.extract_audio was found (jaano-3du, now fixed and
 # regression-tested). What remains is upstream, in parakeet_mlx/utils.py.
 # Filtering the category would have hidden ours along with theirs.
 filterwarnings = [
@@ -100,7 +100,7 @@ convention = "google"
 # Keys verified against mutmut 3.7.0's own configuration.py, not against a
 # plan or a docs page: `paths_to_mutate` and `tests_dir` are 2.x names that
 # 3.x still reads but warns about. These are the current ones.
-source_paths = ["deixis"]
+source_paths = ["jaano"]
 
 # Scoped to the three PURE modules. They are ~150 statements, they are where
 # the audit's covered-but-unasserted defects actually lived, and their tests
@@ -113,7 +113,7 @@ source_paths = ["deixis"]
 # quarter of its own scope. transcribe.py and media.py are excluded for the
 # ordinary reason: their tests are integration-shaped and mutants time out
 # rather than inform.
-only_mutate = ["deixis/merge.py", "deixis/checkpoint.py", "deixis/atomic.py"]
+only_mutate = ["jaano/merge.py", "jaano/checkpoint.py", "jaano/atomic.py"]
 
 # Explicit, not inherited. Whether mutmut's fork-based runner picks up pytest's
 # addopts is documented nowhere either way, and the whole tractability argument

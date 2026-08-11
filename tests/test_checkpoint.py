@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from parakeet_mlx.alignment import AlignedToken
 
-from deixis.checkpoint import (
+from jaano.checkpoint import (
     SCHEMA,
     Fingerprint,
     checkpoint_path_for,
@@ -169,7 +169,7 @@ def test_a_re_encoded_source_invalidates(tmp_path: Path) -> None:
 # --- the validated boundary -------------------------------------------------
 #
 # read_checkpoint parses bytes a PREVIOUS PROCESS wrote. It is the one place in
-# deixis that reads a document it did not produce in this run, and until the
+# jaano that reads a document it did not produce in this run, and until the
 # checkpoint was validated it returned whatever the JSON happened to contain.
 
 
@@ -290,7 +290,7 @@ def test_the_checkpoint_is_written_with_fsync(
         seen.append(fsync)
         path.write_text(text)
 
-    monkeypatch.setattr("deixis.checkpoint.atomic_write_text", spy)
+    monkeypatch.setattr("jaano.checkpoint.atomic_write_text", spy)
     write_checkpoint(tmp_path / "out.json.ckpt", FP, next_start=44, tokens=TOKENS)
 
     assert seen == [True]

@@ -1,6 +1,6 @@
 name: ci
 
-# NO LONGER DORMANT. Runs on github.com/m2moiz/deixis since 2026-08-06.
+# NO LONGER DORMANT. Runs on github.com/m2moiz/jaano since 2026-08-06.
 #
 # The first three runs are why this file could not be trusted until it ran:
 #   1. FAILED in 8s   -- astral-sh/setup-uv@v9 does not resolve (releases go to

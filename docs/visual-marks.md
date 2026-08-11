@@ -1,6 +1,6 @@
 # Visual marks: what was measured, and what it killed
 
-`deixis/frames.py` writes a bounded list of timestamps into the transcript at
+`jaano/dekho.py` writes a bounded list of timestamps into the transcript at
 the moments the picture changed most. This is the record of how that design was
 arrived at, including the three approaches that were built, measured, and
 thrown away. Every number here came from a command; nothing is estimated.
@@ -169,7 +169,7 @@ not the pixel count coming out.
 
 Per practice #14 in [tooling-gaps.md](tooling-gaps.md), a check that cannot fail
 is not a check. Both halves of the failure space are pinned in
-`tests/test_frames.py`:
+`tests/test_dekho.py`:
 
 - `test_static_video_yields_no_marks` — a video where nothing happens must
   produce zero marks. Without it, a full budget on a real recording would prove

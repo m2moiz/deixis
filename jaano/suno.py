@@ -1,6 +1,6 @@
 """Transcribe a media file to a timestamped index, with live progress.
 
-The transcript is deixis' index into the video, so this is the one step that
+The transcript is jaano' index into the video, so this is the one step that
 must not fail quietly. Progress is reported two ways at once: a live line on
 the terminal, and a JSON status file that a detached run can be inspected
 through. Background jobs are the normal case here -- an hour of audio is not
@@ -33,8 +33,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.
-from deixis import media as media_mod
-from deixis.atomic import atomic_write_text
+from jaano import media as media_mod
+from jaano.atomic import atomic_write_text
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
@@ -52,7 +52,7 @@ type Payload = dict[str, Any]
 # retrieval half will call, and a library that writes to stderr unasked is a
 # library that cannot be embedded. main() attaches the stderr handler, so the
 # CLI behaves exactly as before.
-logger = logging.getLogger("deixis.transcribe")
+logger = logging.getLogger("jaano.suno")
 
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
@@ -135,7 +135,7 @@ def _make_chunk_callback(
     """Build the per-chunk progress callback.
 
     `current` and `full` arrive in SAMPLES, not seconds -- the sample counts
-    parakeet-mlx passes its own callback, which deixis/chunking.py preserves.
+    parakeet-mlx passes its own callback, which jaano/chunking.py preserves.
     Upstream only ever feeds them to a ratio, so the units never mattered there.
     Dividing by `rate` is the whole point of this function, and a ratio-only
     assertion cannot see whether it happened, because the units cancel.
@@ -202,8 +202,8 @@ def _label_speakers(
     Returns the payload to hand back to the caller -- the labelled one when the
     pass ran, the one passed in when it did not.
     """
-    from deixis import diarize as diarize_mod
-    from deixis.merge import label_sentences
+    from jaano import diarize as diarize_mod
+    from jaano.merge import label_sentences
 
     started = time.monotonic()
     # Two events, not a bar. senko exposes no per-chunk callback, so there is
@@ -270,7 +270,7 @@ def transcribe(
     # no stubs, so each callable resolves partially unknown at the import
     # itself -- there is no expression to annotate, which is why these two
     # lines are suppressed rather than fixed. The casts below restate the
-    # two-argument form deixis actually calls, which stops the Unknown at this
+    # two-argument form jaano actually calls, which stops the Unknown at this
     # boundary instead of letting it spread through every value derived from
     # the model and the audio. The audio itself stays Any: it is an mx.array.
     from parakeet_mlx import (
@@ -285,13 +285,13 @@ def transcribe(
     from_pretrained = cast("Callable[[str], BaseParakeet]", _from_pretrained)
     load_audio = cast("Callable[[Path, int], Any]", _load_audio)
 
-    from deixis.checkpoint import (
+    from jaano.checkpoint import (
         checkpoint_path_for,
         fingerprint,
         read_checkpoint,
         write_checkpoint,
     )
-    from deixis.chunking import transcribe_chunked
+    from jaano.chunking import transcribe_chunked
 
     started = time.monotonic()
     # Load first: the extraction target rate is a property of this model's
@@ -319,7 +319,7 @@ def transcribe(
 
     stream = media_mod.probe(media)
 
-    with tempfile.TemporaryDirectory(prefix="deixis-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="jaano-") as tmp:
         if media_mod.needs_conversion(stream, rate):
             # Per-phase clock. Extraction runs three orders of magnitude faster
             # than realtime and the transcription that follows around 20x;
@@ -443,17 +443,17 @@ def transcribe(
 def main(argv: list[str] | None = None) -> int:
     """Run the transcribe CLI.
 
-    A shim onto `deixis.cli`, which owns every flag in the project so that the
-    console script and `python -m deixis.transcribe` cannot drift apart. Kept
+    A shim onto `jaano.cli`, which owns every flag in the project so that the
+    console script and `python -m jaano.suno` cannot drift apart. Kept
     as a function returning an int because that is the contract its tests --
     and any embedder -- already rely on.
 
     Returns:
         A process exit code.
     """
-    from deixis.cli import run
+    from jaano.cli import run
 
-    return run(["transcribe", *(sys.argv[1:] if argv is None else argv)])
+    return run(["suno", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

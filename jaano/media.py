@@ -1,11 +1,11 @@
 """Everything that talks to ffmpeg.
 
-deixis keeps the video on disk and treats it as a random-access resource, so
+jaano keeps the video on disk and treats it as a random-access resource, so
 this module is the single place that knows how to open one. Today it extracts
 audio for the transcript; frame retrieval at a timestamp belongs here too.
 
 parakeet-mlx will happily shell out to ffmpeg itself -- `load_audio` in
-parakeet_mlx/audio.py does exactly the conversion below. The reason deixis
+parakeet_mlx/audio.py does exactly the conversion below. The reason jaano
 does it instead is that parakeet's call is opaque: no progress for the minute
 it spends on an hour-long recording, and a failure message that is the ffmpeg
 build banner with the actual diagnosis buried in it.
@@ -70,7 +70,7 @@ def _tool(name: str) -> str:
     path = shutil.which(name)
     if path is None:
         raise FFmpegNotFound(
-            f"{name} is not on PATH. deixis reads video through ffmpeg; "
+            f"{name} is not on PATH. jaano reads video through ffmpeg; "
             f"install it with `brew install ffmpeg`."
         )
     return path
@@ -176,7 +176,7 @@ def extract_audio(
         "-stats_period", "0.5",
         "-y",
         "-i", str(media),
-        "-vn",                 # the video stays on disk; deixis retrieves
+        "-vn",                 # the video stays on disk; jaano retrieves
                                # frames from it later, at timestamps the
                                # transcript justifies
         "-ac", "1",

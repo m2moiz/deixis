@@ -72,7 +72,7 @@ def run_and_watch(media: Path, out: Path, status: Path, log: Path,
     marker = uuid.uuid4().hex
     status = status.with_name(f"{status.name}.{marker}")
     argv = [
-        sys.executable, "-m", "deixis.transcribe",
+        sys.executable, "-m", "jaano.suno",
         str(media), "-o", str(out), "--status", str(status), *extra,
     ]
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -149,8 +149,8 @@ def report_straddles(payload: dict, media: Path) -> None:
     it is the only way to see INSIDE the vote from out here: the transcript
     records who won each sentence, never how close it was.
     """
-    from deixis.diarize import speaker_turns
-    from deixis.merge import TurnIndex
+    from jaano.diarize import speaker_turns
+    from jaano.merge import TurnIndex
 
     result = speaker_turns(media)
     index = TurnIndex(result.turns)
