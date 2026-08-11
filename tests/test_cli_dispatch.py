@@ -224,3 +224,105 @@ def test_the_installed_console_script_works() -> None:
     assert proc.returncode == 0, proc.stderr
     for verb in ("transcribe", "mark", "frame"):
         assert verb in proc.stdout, proc.stdout
+
+
+# --------------------------------------------------------------------------
+# Containers the mark pass can read, the frame pass must be able to open
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def transport_stream(video: Path, tmp_path: Path) -> Path:
+    """The same content remuxed to MPEG-TS, which carries no global index."""
+    dest = tmp_path / "v.ts"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-c", "copy",
+         "-f", "mpegts", str(dest)],
+        check=True,
+    )
+    return dest
+
+
+def test_a_frame_can_be_pulled_from_a_container_with_no_index(
+    transport_stream: Path, tmp_path: Path
+) -> None:
+    """An index whose entries cannot be opened is worse than no index.
+
+    MPEG-TS has no global header, so `-ss` BEFORE `-i` seeks to nothing and
+    ffmpeg writes no frame -- at a timestamp the file plainly contains. Measured
+    before the fix: extract_tile_grid read all 6 seconds of a .ts that
+    extract_frame could not open at t=3, and the error blamed the timestamp.
+    """
+    dest = tmp_path / "f.jpg"
+    assert main(["dikhao", str(transport_stream), "6.0", "-o", str(dest)]) == 0
+    assert dest.exists()
+    assert _mean_grey(dest) > 192, "must land in the second, near-white half"
+
+
+def test_a_missing_output_directory_says_so(video: Path, tmp_path: Path) -> None:
+    """Not 'a timestamp past the end' -- that hint used to be unconditional.
+
+    Writing frames into a scratch directory it forgot to create is the mistake
+    a calling agent actually makes, and it was being pointed at the wrong
+    variable.
+    """
+    from jaano.media import MediaError
+
+    with pytest.raises(MediaError, match="does not exist"):
+        main(["dikhao", str(video), "1.0", "-o", str(tmp_path / "nope" / "f.jpg")])
+
+
+def test_past_the_end_still_says_past_the_end(video: Path, tmp_path: Path) -> None:
+    """The hint is now conditional, so prove it still fires when it should."""
+    from jaano.media import MediaError
+
+    with pytest.raises(MediaError, match="past the end of this"):
+        main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
+
+
+def _brightness_ramp(tmp_path: Path, container: str, gop: int = 30) -> Path:
+    """A clip whose brightness rises with time, so a frame identifies its second."""
+    master = tmp_path / "ramp.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+         "-i", "color=c=black:s=160x120:d=10:r=25",
+         "-vf", "geq=lum='clip(T*25,0,255)':cb=128:cr=128",
+         "-g", str(gop), "-pix_fmt", "yuv420p", str(master)],
+        check=True,
+    )
+    if container == "mp4":
+        return master
+    dest = tmp_path / f"ramp.{container}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(master), "-c", "copy",
+         "-f", "mpegts" if container == "ts" else container, str(dest)],
+        check=True,
+    )
+    return dest
+
+
+def test_the_frame_comes_from_the_second_that_was_asked_for(tmp_path: Path) -> None:
+    """Not merely *a* frame -- the RIGHT frame, on a container with no index.
+
+    The first fix here only fell back when the fast seek produced nothing. On an
+    MPEG-TS carrying periodic keyframes the fast seek SUCCEEDS and snaps forward
+    to the next keyframe, so `dikhao` returned the picture from t=9 when asked
+    for t=8, with exit 0 and no warning. For a tool whose promise is "the frame
+    at this timestamp", silently late is as bad as silently wrong.
+    """
+    ts = _brightness_ramp(tmp_path, "ts")
+    mp4 = tmp_path / "ramp.mp4"
+
+    for second in (3, 8):
+        want = tmp_path / f"want{second}.jpg"
+        got = tmp_path / f"got{second}.jpg"
+        # ground truth: a full accurate decode of the indexed master
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-ss", str(second),
+             "-frames:v", "1", str(want)],
+            check=True,
+        )
+        assert main(["dikhao", str(ts), str(float(second)), "-o", str(got), "--width", "0"]) == 0
+        assert abs(_mean_grey(got) - _mean_grey(want)) <= 2, (
+            f"asked for t={second}s and got a frame from elsewhere in the ramp"
+        )

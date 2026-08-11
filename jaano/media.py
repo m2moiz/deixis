@@ -248,6 +248,31 @@ def has_video(media: Path) -> bool:
     return bool(info.get("streams"))
 
 
+# How far before the target the coarse seek lands, in seconds. Big enough to
+# clear a long GOP, small enough that the exact decode after it stays cheap.
+PREROLL_S = 5.0
+
+
+def _duration(media: Path) -> float | None:
+    """Seconds of video, or None if ffprobe will not say.
+
+    Used only to decide whether a failed frame extraction deserves the
+    "past the end" diagnosis. None means "do not claim to know".
+    """
+    proc = subprocess.run(
+        [_tool("ffprobe"), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=duration", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", str(media)],
+        capture_output=True, text=True, check=False,
+    )
+    for line in proc.stdout.split():
+        try:
+            return float(line)
+        except ValueError:
+            continue
+    return None
+
+
 def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None) -> Path:
     """Write the frame at `t` seconds of `media` to `dest`.
 
@@ -281,36 +306,77 @@ def extract_frame(media: Path, t: float, dest: Path, *, width: int | None = None
     if not has_video(media):
         raise NoVideoStream(f"{media} has no video stream, so there is no frame at {t}s.")
 
-    cmd = [
-        _tool("ffmpeg"),
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel", "error",
-        "-y",
-        # -ss BEFORE -i is the fast form: ffmpeg seeks the container instead of
-        # decoding from zero, which on a 33-minute file is the difference
-        # between milliseconds and half a minute. It has been frame-accurate
-        # since 2.1 -- the old "input seeking is approximate" advice predates
-        # that and would cost a full decode to avoid a problem that is gone.
-        "-ss", str(t),
-        "-i", str(media),
-        "-frames:v", "1",
-        "-q:v", "2",
-    ]
-    if width is not None:
-        cmd += ["-vf", f"scale={width}:-2"]  # -2, not -1: keeps the height even
-    cmd.append(str(dest))
+    if not dest.parent.is_dir():
+        # Checked before ffmpeg runs. Otherwise ENOENT on the parent surfaces as
+        # "Nothing was written into output file" and gets blamed on the
+        # timestamp -- which is the mistake a caller writing frames into a
+        # scratch directory it forgot to create will actually make.
+        raise MediaError(
+            f"cannot write {dest}: the directory {dest.parent} does not exist."
+        )
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    # Both conditions, not just the exit code. A seek past the end of the file
-    # fails deep in the encoder -- observed exit 234 with "Nothing was written
-    # into output file" buried under nine lines of thread teardown -- and the
-    # useful diagnosis is the missing file, not that log.
+    def _run(fast: bool) -> subprocess.CompletedProcess[str]:
+        # THE SEEK, and why it is two -ss options rather than one.
+        #
+        # -ss BEFORE -i seeks the container instead of decoding from zero: on a
+        # 33-minute file that is milliseconds against half a minute. But on a
+        # container with no reliable index it either finds nothing (raw h264,
+        # long-GOP MPEG-TS) or -- worse -- snaps to the next keyframe and
+        # returns a frame from the WRONG MOMENT with exit 0 and no warning.
+        # Measured on an MPEG-TS at t=8s: the fast form returned the picture
+        # from t=9. For a tool whose entire promise is "the frame at this
+        # timestamp", silently late is the same class of failure as silently
+        # wrong.
+        #
+        # -ss AFTER -i decodes forward and is exact, but from zero.
+        #
+        # So: coarse-seek to PREROLL seconds early, then decode the remainder
+        # exactly. Bounded work (at most PREROLL seconds of decode) at any depth
+        # into the file, and accurate. Verified against a brightness ramp on an
+        # MPEG-TS -- all ten whole seconds matched a full accurate decode, where
+        # the fast form drifted.
+        if fast:
+            coarse = max(0.0, t - PREROLL_S)
+            seek = ["-ss", str(coarse), "-i", str(media), "-ss", str(t - coarse)]
+        else:
+            # Last resort: decode from the start. Only reached when even the
+            # coarse seek lands nowhere.
+            seek = ["-i", str(media), "-ss", str(t)]
+        cmd = [
+            _tool("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            *seek, "-frames:v", "1", "-q:v", "2",
+        ]
+        if width is not None:
+            cmd += ["-vf", f"scale={width}:-2"]  # -2, not -1: keeps the height even
+        cmd.append(str(dest))
+        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    # Both conditions, not just the exit code. A seek that lands nowhere fails
+    # deep in the encoder -- observed exit 234 with "Nothing was written into
+    # output file" under nine lines of thread teardown -- and the useful
+    # diagnosis is the missing file, not that log.
+    proc = _run(fast=True)
     if proc.returncode != 0 or not dest.exists():
+        # Fall back to decoding forward. MPEG-TS has no global index, so the
+        # fast seek returns nothing at a timestamp the file plainly contains --
+        # measured: extract_tile_grid reads all 6 seconds of a .ts that
+        # extract_frame could not open at t=3. An index whose entries cannot be
+        # opened is worse than no index, so pay the decode rather than fail.
+        proc = _run(fast=False)
+
+    if proc.returncode != 0 or not dest.exists():
+        duration = _duration(media)
+        # Only blame the timestamp when the timestamp is actually to blame.
+        # This hint used to be appended unconditionally, which is how the
+        # MPEG-TS seek failure above hid for as long as it did.
+        hint = (
+            f"{t}s is past the end of this {duration:.1f}s recording."
+            if duration and t > duration
+            else "ffmpeg read the file but produced no frame; its log is above."
+        )
         raise MediaError(
             f"ffmpeg could not extract a frame at {t}s from {media} "
-            f"(exit {proc.returncode}):\n{proc.stderr.strip()}\n"
-            f"The usual cause is a timestamp past the end of the recording."
+            f"(exit {proc.returncode}):\n{proc.stderr.strip()}\n{hint}"
         )
     return dest
 
