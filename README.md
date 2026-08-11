@@ -95,14 +95,31 @@ the interesting part.
 ## Install
 
 ```bash
-git clone https://github.com/m2moiz/jaano
-cd jaano
-uv sync                      # transcript only
-uv sync --extra diarize      # + speaker labels (see the caveats below)
+uv tool install git+https://github.com/m2moiz/jaano
+```
+
+That puts `jaano` on your `PATH`. With speaker labels (see the caveats below):
+
+```bash
+uv tool install "jaano[diarize] @ git+https://github.com/m2moiz/jaano"
 ```
 
 Model weights (~2.4 GB) download on first run and are cached by
 `huggingface_hub`.
+
+**To work on it instead**, clone and sync — but note that `uv sync` installs the
+command at `.venv/bin/jaano` and links it nowhere, so from a clone every
+invocation is prefixed with `uv run`:
+
+```bash
+git clone https://github.com/m2moiz/jaano
+cd jaano
+uv sync                      # or: uv sync --extra diarize
+uv run jaano suno recording.mov -o transcript.json
+```
+
+Every command below is written bare (`jaano ...`), which is what an installed
+copy gives you. From a clone, prefix each one with `uv run`.
 
 ## Usage
 
@@ -145,7 +162,7 @@ Progress renders live on stderr:
 and poll the heartbeat:
 
 ```bash
-uv run python -m jaano.suno meeting.mov -o out.json --status run.json &
+jaano suno meeting.mov -o out.json --status run.json &
 jq -r '"\(.state) \(.fraction * 100 | floor)% eta \(.eta_s)s"' run.json
 ```
 
@@ -164,7 +181,7 @@ separate because the transcript arrives at ~13x realtime and this decodes every
 sampled frame at ~10x, so coupling them would make the fast half wait:
 
 ```bash
-uv run python -m jaano.dekho recording.mov -t transcript.json
+jaano dekho recording.mov -t transcript.json
 ```
 
 | Flag | |
@@ -368,7 +385,7 @@ with a screenshot of an inbox — see
 deliberately reopened rather than carried forward.
 
 **Speaker labels: senko, optional, and wrong in ways worth naming.**
-Diarization is an extra — `uv sync --extra diarize` — not a dependency. It pulls
+Diarization is an extra — the `[diarize]` install above — not a dependency. It pulls
 29 packages (scikit-learn, scipy, umap-learn, hdbscan, coremltools, numba) for
 one optional pass, it is a source build, and on Darwin it forces
 `device='coreml'` unconditionally, so a core dependency here would be a core
@@ -498,4 +515,5 @@ docs/              the reasoning that did not fit here
 
 ## License
 
-None yet. Ask before reusing.
+[GNU AGPL-3.0-only](LICENSE). Use it, change it, run it — but if you run a
+modified version as a network service, its users get the source.

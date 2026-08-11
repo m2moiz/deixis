@@ -15,7 +15,7 @@ cannot tell them apart.
 
 senko installs 29 packages including scikit-learn, scipy, umap-learn and
 coremltools, and only runs on CoreML, so it is an extra rather than a core
-dependency: `uv sync --extra diarize`.
+dependency. See `INSTALL_HINT` below for the two ways to add it.
 """
 
 from __future__ import annotations
@@ -34,7 +34,13 @@ from typing import Any, NamedTuple
 
 from jaano.merge import Turn
 
-INSTALL_HINT = "uv sync --extra diarize"
+# Two hints, because there are two ways to have jaano and the wrong one is a
+# no-op. `uv sync --extra diarize` only means anything inside a clone; someone
+# who ran `uv tool install` has no project to sync and needs the reinstall form.
+INSTALL_HINT = (
+    'uv tool install "jaano[diarize] @ git+https://github.com/m2moiz/jaano"'
+    " (or `uv sync --extra diarize` from a clone)"
+)
 
 
 class DiarizationUnavailable(RuntimeError):
