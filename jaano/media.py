@@ -56,6 +56,41 @@ class NoVideoStream(MediaError):
     """The file opened, but carries no picture to scan for changes."""
 
 
+# ffmpeg exits within milliseconds of its output pipe closing. Thirty seconds is
+# not a tuned figure; it is "longer than any healthy exit could possibly need".
+_REAP_TIMEOUT_S = 30.0
+
+
+def _reap(proc: subprocess.Popen[Any], *, what: str, timeout: float = _REAP_TIMEOUT_S) -> int:
+    """Close ffmpeg's output pipe, then wait for it under a bound.
+
+    A bare `proc.wait()` is only safe while the loop above it is guaranteed to
+    read to EOF. Break out of one early -- one character of a wrong comparison
+    is enough -- and the pipe stays full: ffmpeg blocks in `write()`, the parent
+    blocks in `waitpid()`, and neither has a timeout. That is not a slow test,
+    it is an unkillable one. Observed during mutation testing of
+    `extract_tile_grid`: `<` to `<=` on the short-read check hung the suite for
+    eight minutes, `pytest --timeout=120` could not interrupt it, and the ffmpeg
+    child outlived the run.
+
+    Closing stdout is the fix -- ffmpeg takes EPIPE and exits. The timeout is
+    for a child that ignores it, and it kills rather than waits.
+    """
+    if proc.stdout is not None:
+        proc.stdout.close()
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.wait()
+        raise MediaError(
+            f"ffmpeg did not exit within {timeout:g}s of {what}, so it was killed. "
+            f"Its output pipe had already been closed, which normally ends it at "
+            f"once -- reaching this means something above stopped reading early "
+            f"and left ffmpeg blocked writing into a full pipe."
+        ) from exc
+
+
 @dataclass(frozen=True)
 class AudioStream:
     """What ffprobe reports about the one audio stream we intend to read."""
@@ -205,7 +240,7 @@ def extract_audio(
             # only one of the pair that means what it says.
             if key == "out_time_us" and value != "N/A" and on_progress:
                 on_progress(int(value) / 1_000_000)
-        returncode = proc.wait()
+        returncode = _reap(proc, what="its progress stream reaching EOF")
         errfile.seek(0)
         stderr = errfile.read().strip()
 
@@ -417,7 +452,8 @@ def extract_tile_grid(
 
     Raises:
         NoVideoStream: if `media` has no video stream.
-        MediaError: if ffmpeg exits non-zero.
+        MediaError: if ffmpeg exits non-zero, does not exit at all once its
+            pipe is closed, or ends the stream part-way through a frame.
         ValueError: if `fps`, `width` or `height` is not positive.
     """
     if fps <= 0:
@@ -447,6 +483,10 @@ def extract_tile_grid(
 
     frame_bytes = width * height
     frames: list[NDArray[np.uint8]] = []
+    # Bytes of a frame that never finished. Raised on AFTER the `with` closes,
+    # not from inside it: `Popen.__exit__` waits without a timeout, so raising
+    # under it would re-enter the hang this function was rewritten to remove.
+    partial = 0
     # stderr to a file and Popen as a context manager, for the same two reasons
     # as extract_audio: a second pipe with no reader can deadlock, and an
     # unclosed stdout leaks a descriptor until the collector happens to run.
@@ -461,6 +501,12 @@ def extract_tile_grid(
             # one as if it were a whole frame would shear every frame after it.
             buf = proc.stdout.read(frame_bytes)
             if len(buf) < frame_bytes:
+                # 0 is EOF, and the ordinary way this loop ends. Anything
+                # between 1 and frame_bytes-1 is a stream that stopped mid-frame
+                # -- which cannot happen through a healthy BufferedReader, and
+                # so is worth saying out loud rather than silently returning a
+                # short scan that reads like a shorter video.
+                partial = len(buf)
                 break
             # No .copy(). frombuffer returns a read-only VIEW, which looks like
             # it wants one -- but each read() hands back a fresh bytes object
@@ -472,7 +518,7 @@ def extract_tile_grid(
             frames.append(np.frombuffer(buf, dtype=np.uint8).reshape(height, width))
             if on_progress:
                 on_progress(len(frames) / fps)
-        returncode = proc.wait()
+        returncode = _reap(proc, what="the frame stream reaching EOF")
         errfile.seek(0)
         stderr = errfile.read().strip()
 
@@ -481,6 +527,12 @@ def extract_tile_grid(
             f"ffmpeg failed to scan {media} (exit {returncode}):\n{stderr}\n"
             f"Try `ffmpeg -i {media} -vf fps={fps},scale={width}:{height} -f null -` "
             f"by hand to see the full log."
+        )
+    if partial:
+        raise MediaError(
+            f"ffmpeg's frame stream for {media} stopped {partial} bytes into a "
+            f"{frame_bytes}-byte frame, after {len(frames)} complete frames. The scan "
+            f"would be silently short, so it is not returned."
         )
     if not frames:
         return np.zeros((0, height, width), dtype=np.uint8)
