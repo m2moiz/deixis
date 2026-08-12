@@ -53,7 +53,7 @@ import typer
 # real default is 150. Measured cost of the import: ~90ms, inside the noise of
 # `jaano --help` at 120-200ms. The heavy workers below stay lazy.
 from jaano.dekho import DEFAULT_BUDGET, DEFAULT_DELTA, DEFAULT_FPS, DEFAULT_MIN_GAP_S
-from jaano.suno import DEFAULT_MODEL
+from jaano.suno import DEFAULT_MODEL, DEFAULT_WHISPER_MODEL, ENGINES
 
 app = typer.Typer(
     add_completion=False,
@@ -86,7 +86,28 @@ def _stderr_logger(name: str) -> None:
 def suno(
     media: Annotated[Path, typer.Argument(help="video or audio file; a .mov is the normal case")],
     out: Annotated[Path, typer.Option("--out", "-o", help="where the transcript JSON goes")],
-    model: Annotated[str, typer.Option("--model", help="the ASR model")] = DEFAULT_MODEL,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help=f"the ASR model (default: {DEFAULT_MODEL} per --engine)"),
+    ] = None,
+    engine: Annotated[
+        str, typer.Option("--engine", help=f"ASR backend: {' | '.join(ENGINES)}")
+    ] = "parakeet",
+    language: Annotated[
+        str | None,
+        typer.Option("--language", help="whisper only: ISO code, e.g. ur. Detected if omitted"),
+    ] = None,
+    prompt: Annotated[
+        str | None,
+        typer.Option("--prompt", help="whisper only: seeds the decoder; biases spelling+script"),
+    ] = None,
+    roman_urdu: Annotated[
+        bool,
+        typer.Option(
+            "--roman-urdu",
+            help="whisper only: Urdu, written in Latin. Sets --language ur and a measured --prompt",
+        ),
+    ] = False,
     status: Annotated[
         Path | None, typer.Option("--status", help="JSON heartbeat file for detached runs")
     ] = None,
@@ -105,6 +126,7 @@ def suno(
     from jaano.atomic import atomic_write_text
     from jaano.suno import Progress, clock, render_bar
     from jaano.suno import transcribe as run_transcribe
+    from jaano.whisper import ROMAN_URDU_PROMPT
 
     _stderr_logger("jaano.suno")
 
@@ -123,6 +145,20 @@ def suno(
         last_state = state
         print(render_bar(p, state), end="\r" if tty else "\n", file=sys.stderr, flush=True)
 
+    # --roman-urdu is sugar over the two flags under it, and it is spelled as
+    # sugar rather than as a mode so that an explicit --language or --prompt
+    # beside it still wins. The prompt it sets is measured, not invented: see
+    # jaano/whisper.py.
+    if roman_urdu:
+        engine = "whisper" if engine == "parakeet" else engine
+        language = language or "ur"
+        prompt = prompt or ROMAN_URDU_PROMPT
+
+    # Resolved here, not in transcribe(): this file owns every default in the
+    # project, and a default that lives in two places is a default that will
+    # disagree with `--help` eventually.
+    model = model or (DEFAULT_WHISPER_MODEL if engine == "whisper" else DEFAULT_MODEL)
+
     started = time.monotonic()
     try:
         result = run_transcribe(
@@ -134,6 +170,9 @@ def suno(
             resume=not no_resume,
             diarize=not no_diarize,
             require_diarize=require_diarize,
+            engine=engine,
+            language=language,
+            prompt=prompt,
         )
     except Exception as exc:
         # Record and re-raise: a detached watcher polling the heartbeat has no
