@@ -60,7 +60,7 @@ only where the transcript says something visual happened.
 | Does frame retrieval help an agent? | **5/16 → 16/16** on blind-graded questions | [do-marks-help.md](docs/do-marks-help.md) |
 | Do the change marks beat chance? | **701/834** third-party recordings, p = 3.5e-94 | [generalisation.md](docs/generalisation.md) |
 | On hour-long recordings? | **81%** of slide changes caught within 2s, vs 42% random | [generalisation.md](docs/generalisation.md) |
-| Can a small local VLM read a screen? | **No** — 47% recall, 18 fabrications | [vlm-legibility.md](docs/vlm-legibility.md) |
+| Can a small local VLM read a screen? | **86%** recall on the second model tried, at 156 s/frame | [vlm-legibility.md](docs/vlm-legibility.md) |
 | Where does it fail? | A camera pointed at a screen. Documented, not hidden | [generalisation.md](docs/generalisation.md) |
 
 Every number came from a command. Three change detectors were built, measured
@@ -327,7 +327,7 @@ can fail. That cost is the point — see [docs/tooling-gaps.md](docs/tooling-gap
 | [docs/visual-marks.md](docs/visual-marks.md) | the three change detectors that were built and measured before this one, and why each failed |
 | [docs/generalisation.md](docs/generalisation.md) | two external benchmarks with human ground truth — 834 GUI recordings (p = 3.5e-94) and five hour-long lectures (81% of slide changes caught within 2s) |
 | [docs/do-marks-help.md](docs/do-marks-help.md) | do the marks actually help an agent? Three arms, blind-graded: 5/16 → 7/16 → 16/16 |
-| [docs/vlm-legibility.md](docs/vlm-legibility.md) | whether a small local VLM can read a screen frame. Measured: not this one |
+| [docs/vlm-legibility.md](docs/vlm-legibility.md) | whether a small local VLM can read a screen frame. Two models, five prompts and budgets, one ground truth: 47% → 86%, and the blocker moves from legibility to speed |
 
 ---
 
@@ -414,15 +414,16 @@ inventing invalidation and leaving 135 MB files next to the user's recordings.
 Anyone who wants the wav can extract it by hand and pass it — the conversion
 step is skipped when the input is already mono `pcm_s16le` at the model's rate.
 
-**Vision, not OCR — but which vision model is now an open question.**
-The plan named Qwen2.5-VL-7B-Instruct on `mlx-vlm`, on the strength of published
-DocVQA and ChartQA scores. That model has still never been run here. What *has*
-been run is `gemma-4-e2b-it-4bit`, on five frames from a real recording with
-ground truth written down first: 47% recall and 18 fabricated strings, at
-18-22 s per image. Benchmark leadership on document QA did not survive contact
-with a screenshot of an inbox — see
-[docs/vlm-legibility.md](docs/vlm-legibility.md) — so the model choice is
-deliberately reopened rather than carried forward.
+**Vision, not OCR — and the model is now chosen on measurement, not on
+benchmarks.** The plan named Qwen2.5-VL-7B-Instruct on `mlx-vlm`, on the strength
+of published DocVQA and ChartQA scores; it has still never been run here, and the
+reason is now that it would be slower on the axis that blocks. Two models were
+measured on five frames from a real recording against ground truth written down
+first: `gemma-4-e2b-it-4bit` recalls 47% while fabricating 18 strings, and
+`Qwen3-VL-4B-Instruct-4bit` recalls 86% on the identical prompt — but takes 156 s
+per frame against gemma's 24. See
+[docs/vlm-legibility.md](docs/vlm-legibility.md): the legibility question is
+answered, and throughput replaced it as the open one.
 
 **Speaker labels: senko, optional, and wrong in ways worth naming.**
 Diarization is an extra — the `[diarize]` install above — not a dependency. It pulls
@@ -518,12 +519,17 @@ Frame *selection* is answered. Frame *description* is not.
   across five real frames (47%) while fabricating 18 — and the fabrications are
   fluent, plausible UI text (`Your GPS aren't the problem`, `OpenAI Browser`),
   which is the kind that poisons an index silently. Resolution is not the fix:
-  700 → 1600 px moved recall by one string.
-- It is also 18–22 s per image, not the ~5 s assumed from an earlier benchmark
-  whose outputs were 23–26 tokens long.
-- Untested and worth trying before concluding anything general: a larger local
-  model (`Qwen3-VL-4B`), a terse prompt with a larger token budget, and a cloud
-  VLM — none of which have been run.
+  700 → 1600 px moved recall by one string. Neither is the token budget: tripling
+  it to 1200 returned the identical 33/70, string for string.
+- `Qwen3-VL-4B-Instruct-4bit` on the same frames, same ground truth and same
+  prompt recovers **60 of 70 (86%)**, including the matrix column headers and the
+  message body that gemma missed entirely. Legibility is no longer what blocks.
+- What blocks now is 156 s per frame — about 6.5 hours of description for a
+  33-minute recording at 150 marks, on a fanless machine. Cutting the frame
+  count, cropping to the changed region, or accepting an overnight batch are the
+  levers, and none is measured yet.
+- A terse "text only, no headings" prompt makes both models worse, not better:
+  each degenerates into a repeat loop on the densest frame.
 - **ColPali / ColQwen2** (late-interaction retrieval over page images, no OCR)
   remains the interesting alternative, but no MLX port exists and nobody reports
   running `colpali-engine` on Apple Silicon MPS. Experiment, not infrastructure.
