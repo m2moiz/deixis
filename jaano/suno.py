@@ -13,6 +13,8 @@ from __future__ import annotations
 __all__ = [
     "CHUNK_S",
     "DEFAULT_MODEL",
+    "DEFAULT_WHISPER_MODEL",
+    "ENGINES",
     "OVERLAP_S",
     "Progress",
     "clock",
@@ -34,7 +36,14 @@ from typing import TYPE_CHECKING, Any, cast
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.
 from jaano import media as media_mod
+from jaano.asr import ENGINES, Transcription
 from jaano.atomic import atomic_write_text
+
+# Names only -- jaano/whisper.py imports mlx-whisper lazily inside its one
+# function, so pulling these two in costs nothing to a run that never asks for
+# the engine, and it keeps `--help` able to print the default.
+from jaano.whisper import DEFAULT_WHISPER_MODEL
+from jaano.whisper import SAMPLE_RATE as WHISPER_SAMPLE_RATE
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
@@ -240,12 +249,15 @@ def _label_speakers(
 def transcribe(
     media: Path,
     out: Path,
-    model_id: str = DEFAULT_MODEL,
+    model_id: str | None = None,
     status_path: Path | None = None,
     on_progress: Callable[[Progress, str], None] | None = None,
     resume: bool = True,
     diarize: bool = True,
     require_diarize: bool = False,
+    engine: str = "parakeet",
+    language: str | None = None,
+    prompt: str | None = None,
 ) -> Payload:
     """Transcribe `media`, writing a sentence+token timestamped JSON to `out`.
 
@@ -265,7 +277,23 @@ def transcribe(
     unlabelled transcript and returns normally. `diarize=False` skips it and
     emits the unlabelled schema exactly; `require_diarize=True` makes a failure
     fatal for a caller who would rather have nothing than an unlabelled index.
+
+    `engine` picks the ASR backend. "parakeet" is the default and everything
+    above describes it. "whisper" exists for the languages parakeet does not
+    have -- see jaano/whisper.py -- and differs in two ways worth knowing
+    before you choose it: it owns its own window loop, so there is no
+    checkpoint and no resume, and it reports no progress between start and
+    finish. `language` and `prompt` are whisper's; parakeet takes neither.
+    `model_id` defaults to whichever engine's model, so it is usually left
+    alone.
     """
+    if engine not in ENGINES:
+        raise ValueError(f"unknown engine {engine!r}, expected one of {', '.join(ENGINES)}")
+    if engine == "parakeet" and (language is not None or prompt is not None):
+        raise ValueError(
+            "--language and --prompt are whisper's; parakeet takes neither. "
+            "Add --engine whisper, or drop them."
+        )
     # Both upstream signatures default a `dtype` to an mx scalar, and mx ships
     # no stubs, so each callable resolves partially unknown at the import
     # itself -- there is no expression to annotate, which is why these two
@@ -295,9 +323,17 @@ def transcribe(
 
     started = time.monotonic()
     # Load first: the extraction target rate is a property of this model's
-    # preprocessor, not a constant we get to assume.
-    model = from_pretrained(model_id)
-    rate = model.preprocessor_config.sample_rate
+    # preprocessor, not a constant we get to assume. The whisper engine skips
+    # this entirely -- its rate is fixed and its model loads inside its own
+    # call, so an engine the user did not ask for never costs a model load.
+    if engine == "whisper":
+        model_id = model_id or DEFAULT_WHISPER_MODEL
+        model = None
+        rate = WHISPER_SAMPLE_RATE
+    else:
+        model_id = model_id or DEFAULT_MODEL
+        model = from_pretrained(model_id)
+        rate = model.preprocessor_config.sample_rate
 
     def write_status(p: Progress, state: str) -> None:
         if status_path is None:
@@ -338,77 +374,108 @@ def transcribe(
         else:
             audio = media
 
-        audio_data = load_audio(audio, rate)
+        # `model is None` IS the engine test, not a shorthand for one: the
+        # parakeet branch below cannot run without a loaded model, and reading
+        # the engine string a second time would let the two disagree.
+        ckpt_path: Path | None = None
+        resumed_from_s = 0.0
+        if model is None:
+            from jaano.whisper import transcribe_whisper
 
-        ckpt_path = checkpoint_path_for(out)
-        # Fingerprinted on `media`, never on `audio`: for a .mov those differ,
-        # and `audio` is a temp wav with a fresh path and mtime on every run, so
-        # a checkpoint keyed to it could never match a second time.
-        fp = fingerprint(media, len(audio_data), model_id, CHUNK_S, OVERLAP_S)
-
-        start_tokens: list[AlignedToken] = []
-        skip_before = 0
-        if resume:
-            found = read_checkpoint(ckpt_path, fp)
-            if found is not None:
-                skip_before, start_tokens = found
-                logger.info(
-                    "resuming from %s (%d tokens banked)",
-                    clock(skip_before / rate),
-                    len(start_tokens),
-                )
+            # No checkpoint, and so no resume: whisper owns its window loop and
+            # exposes no per-window hook to bank one from. Said out loud rather
+            # than left as a silently absent feature, because a resumable engine
+            # and a non-resumable one look identical until the run is killed.
+            if resume:
+                logger.info("whisper writes no checkpoint; an interrupted run starts over")
+            # One report, at 0%, then nothing until the end. mlx-whisper takes
+            # no progress callback, and a bar that moved without evidence would
+            # be a bar that lies.
+            report(Progress(0.0, stream.duration_s, 0.0), "running")
+            transcription = transcribe_whisper(
+                audio, model_id=model_id, language=language, prompt=prompt
+            )
         else:
-            ckpt_path.unlink(missing_ok=True)
+            audio_data = load_audio(audio, rate)
 
-        resumed_from_s = skip_before / rate
+            ckpt_path = checkpoint_path_for(out)
+            # Fingerprinted on `media`, never on `audio`: for a .mov those
+            # differ, and `audio` is a temp wav with a fresh path and mtime on
+            # every run, so a checkpoint keyed to it could never match a second
+            # time.
+            fp = fingerprint(media, len(audio_data), model_id, CHUNK_S, OVERLAP_S)
 
-        # Per-phase clock, as above: transcription runs at a different order of
-        # magnitude from extraction, so they cannot share an elapsed.
-        transcribe_started = time.monotonic()
-        chunk_callback = _make_chunk_callback(
-            rate,
-            lambda: time.monotonic() - transcribe_started,
-            lambda p: report(p, "running"),
-            resumed_from_s,
-        )
+            start_tokens: list[AlignedToken] = []
+            skip_before = 0
+            if resume:
+                found = read_checkpoint(ckpt_path, fp)
+                if found is not None:
+                    skip_before, start_tokens = found
+                    logger.info(
+                        "resuming from %s (%d tokens banked)",
+                        clock(skip_before / rate),
+                        len(start_tokens),
+                    )
+            else:
+                ckpt_path.unlink(missing_ok=True)
 
-        def on_chunk(
-            done_through: int, next_start: int, total: int, merged: list[AlignedToken]
-        ) -> None:
-            # Checkpointed with next_start, never done_through: chunks overlap,
-            # so a chunk's end is past the following chunk's start and resuming
-            # from it would skip a whole chunk of audio.
-            #
-            # Banked before it is reported, so an observer that sees 40% can
-            # never be ahead of what a restart could actually recover.
-            write_checkpoint(ckpt_path, fp, next_start, merged)
-            chunk_callback(done_through, total)
+            resumed_from_s = skip_before / rate
 
-        result = transcribe_chunked(
-            model,
-            audio_data,
-            chunk_s=CHUNK_S,
-            overlap_s=OVERLAP_S,
-            start_tokens=start_tokens,
-            skip_before=skip_before,
-            on_chunk=on_chunk,
-        )
+            # Per-phase clock, as above: transcription runs at a different order
+            # of magnitude from extraction, so they cannot share an elapsed.
+            transcribe_started = time.monotonic()
+            chunk_callback = _make_chunk_callback(
+                rate,
+                lambda: time.monotonic() - transcribe_started,
+                lambda p: report(p, "running"),
+                resumed_from_s,
+            )
+            banked = ckpt_path
+
+            def on_chunk(
+                done_through: int, next_start: int, total: int, merged: list[AlignedToken]
+            ) -> None:
+                # Checkpointed with next_start, never done_through: chunks
+                # overlap, so a chunk's end is past the following chunk's start
+                # and resuming from it would skip a whole chunk of audio.
+                #
+                # Banked before it is reported, so an observer that sees 40% can
+                # never be ahead of what a restart could actually recover.
+                write_checkpoint(banked, fp, next_start, merged)
+                chunk_callback(done_through, total)
+
+            result = transcribe_chunked(
+                model,
+                audio_data,
+                chunk_s=CHUNK_S,
+                overlap_s=OVERLAP_S,
+                start_tokens=start_tokens,
+                skip_before=skip_before,
+                on_chunk=on_chunk,
+            )
+            transcription = Transcription(
+                text=result.text,
+                sentences=[
+                    {
+                        "start": s.start,
+                        "end": s.end,
+                        "text": s.text,
+                        "tokens": [{"t": t.start, "w": t.text} for t in s.tokens],
+                    }
+                    for s in result.sentences
+                ],
+            )
 
         payload: Payload = {
             # The source the user handed us, never the temp wav -- this JSON is
             # an index into that file and has to keep pointing at it.
             "audio": str(media),
+            # No separate engine field: the model id already names it, and
+            # tests/test_suno.py pins this key set precisely so a downstream
+            # reader can rely on it.
             "model": model_id,
-            "text": result.text,
-            "sentences": [
-                {
-                    "start": s.start,
-                    "end": s.end,
-                    "text": s.text,
-                    "tokens": [{"t": t.start, "w": t.text} for t in s.tokens],
-                }
-                for s in result.sentences
-            ],
+            "text": transcription.text,
+            "sentences": transcription.sentences,
         }
         # Atomic for the same reason as the heartbeat, and more: `out` is what
         # every downstream tool reads, and a truncated transcript does not
@@ -418,7 +485,8 @@ def transcribe(
         # The transcript is on disk, so the checkpoint has nothing left to
         # protect. Removed after the write, not before: a crash between the two
         # costs one redundant resume rather than the whole run.
-        ckpt_path.unlink(missing_ok=True)
+        if ckpt_path is not None:
+            ckpt_path.unlink(missing_ok=True)
 
         # After the unlink, not before: the checkpoint protects ASR work, that
         # work is banked the moment the transcript is on disk, and a
@@ -435,7 +503,7 @@ def transcribe(
             )
 
         elapsed = time.monotonic() - started
-        total = result.sentences[-1].end if result.sentences else 0.0
+        total = transcription.sentences[-1]["end"] if transcription.sentences else 0.0
         report(Progress(total, total, elapsed, resumed_from_s), "done")
         return payload
 

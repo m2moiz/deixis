@@ -34,6 +34,13 @@ Source = "https://github.com/m2moiz/jaano"
 Issues = "https://github.com/m2moiz/jaano/issues"
 
 [project.optional-dependencies]
+# mlx-whisper pulls torch (~250 MB) purely for its torch->mlx weight
+# conversion path, so it is an extra for the same reason senko is: a base
+# install should not carry a quarter of a gigabyte for a pass most runs of the
+# default engine never take.
+whisper = [
+    "mlx-whisper>=0.4.3",
+]
 diarize = [
     "senko>=0.1.0,<0.2",
 ]

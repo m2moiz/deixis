@@ -83,8 +83,9 @@ the interesting part.
 
 ## Requirements
 
-- **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], which is
-  Metal-backed. There is no CPU or CUDA path.
+- **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], and the
+  whisper engine through `mlx-whisper`. Both are Metal-backed; there is no CPU
+  or CUDA path.
 - **Python 3.12+**
 - **ffmpeg** on `PATH`, for anything that is not already a 16 kHz mono WAV.
 - [`uv`][uv] for dependency management.
@@ -156,7 +157,46 @@ Progress renders live on stderr:
 | `--no-resume` | ignore any checkpoint and start over |
 | `--no-diarize` | skip speaker labelling |
 | `--require-diarize` | fail rather than degrade if labelling cannot run |
-| `--model ID` | override the ASR model |
+| `--model ID` | override the ASR model; the default follows `--engine` |
+| `--engine parakeet\|whisper` | which ASR backend (default `parakeet`) |
+| `--language CODE` | whisper only: ISO code, e.g. `ur`. Detected if omitted |
+| `--prompt TEXT` | whisper only: seeds the decoder; biases spelling and script |
+| `--roman-urdu` | whisper, Urdu, written in Latin. Sets the two flags above |
+
+**Urdu, and anything else parakeet cannot read.** `parakeet-tdt-0.6b-v3` covers
+25 languages and they are all European — `ur` is not among them, so an Urdu
+voice note comes back as nothing usable. `--engine whisper` swaps in
+`whisper-large-v3-turbo`, which reads it:
+
+```bash
+jaano suno voice-note.m4a -o transcript.json --roman-urdu
+```
+
+Roman Urdu is a **prompt**, not a setting. whisper writes Urdu in Urdu script by
+default; seeding the decoder with a Roman Urdu example makes it emit Latin, and
+whisper's own condition-on-previous-text carries that across windows. Measured
+on 116s of Urdu speech: **275 of 277 words came back in Latin**, English words
+left in English where they were spoken in English — which is the point, for
+speech that switches mid-sentence. `--roman-urdu` is that prompt plus
+`--language ur`; `--prompt` takes your own.
+
+The model matters more than it looks. The full `whisper-large-v3` ignores the
+prompt outright — 280 of 280 words in Urdu script, and 218s rather than 85s for
+the same clip. Turbo is the default here for that reason, and changing it means
+re-measuring.
+
+Two things the whisper engine does not do: it writes **no checkpoint**, so an
+interrupted run starts over, and it reports **no progress** between start and
+finish — it owns its own window loop and exposes no hook to bank or count one
+from. It runs at ~1.4x realtime against parakeet's ~13x. All three are fine for
+a voice note and wrong for an hour of lecture, which is why parakeet stays the
+default.
+
+It is an extra, because mlx-whisper pulls torch (~250 MB):
+
+```bash
+uv tool install "jaano[whisper] @ git+https://github.com/m2moiz/jaano"
+```
 
 **Long runs.** An hour of audio is not something you sit and watch, so detach it
 and poll the heartbeat:
@@ -506,6 +546,8 @@ jaano/            the package
   chunking.py      the chunk loop parakeet-mlx does not provide
   checkpoint.py    resume, and the validated boundary that reads it
   merge.py         token-vote speaker labelling
+  asr.py           the one shape both ASR engines return
+  whisper.py       the whisper engine, and why Roman Urdu is a prompt
   diarize.py       the fail-soft senko boundary
   atomic.py        write-or-do-not-write, for files a reader may be watching
 tests/             fast unit tests, plus the two slow end-to-end gates
