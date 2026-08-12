@@ -27,6 +27,7 @@ __all__ = [
     "speaker_turns",
 ]
 
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
@@ -40,6 +41,15 @@ from jaano.merge import Turn
 INSTALL_HINT = (
     'uv tool install "jaano[diarize] @ git+https://github.com/m2moiz/jaano"'
     " (or `uv sync --extra diarize` from a clone)"
+)
+
+# The remedy for the OTHER failure, which INSTALL_HINT cannot fix: senko is
+# already installed and still will not import. `--python` is the whole point of
+# this one -- the interpreter is the variable, and repeating the plain install
+# reproduces the breakage on the same interpreter that caused it.
+REINSTALL_HINT = (
+    'uv tool install --force --python 3.12 "jaano[diarize] @ '
+    'git+https://github.com/m2moiz/jaano"'
 )
 
 
@@ -121,12 +131,45 @@ def _import_senko() -> ModuleType:
     """
     try:
         import senko
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
+        # `name` is what separates the two shapes, and they need opposite
+        # advice. senko itself absent is the common case and the install hint
+        # fixes it. One of senko's OWN imports missing means the extra is
+        # already installed, and telling someone to install it again sends them
+        # in a circle.
+        if exc.name != "senko":
+            raise DiarizationUnavailable(_will_not_load(exc)) from exc
         raise DiarizationUnavailable(
             f"senko is not installed, so sentences cannot be labelled with who "
             f"spoke. Install it with `{INSTALL_HINT}`."
         ) from exc
+    except ImportError as exc:
+        # Not a missing module: a module that is present and refuses to load.
+        # A native extension failing to dlopen lands here, and this branch
+        # exists because it used to land in the one above and be reported as
+        # "not installed" -- an hour of reinstalling something already
+        # installed, with the dlopen error thrown away.
+        raise DiarizationUnavailable(_will_not_load(exc)) from exc
     return senko
+
+
+def _will_not_load(exc: ImportError) -> str:
+    """The message for an extra that is installed and still will not import.
+
+    Leads with the running interpreter because that is the variable. senko's
+    dependency tree reaches native wheels, wheels are published per Python
+    version, and a version with no wheel gets built from source into something
+    that installs cleanly and fails at dlopen. The exception text names the
+    library that failed; it is the only actionable line in the failure and the
+    old handler discarded it.
+    """
+    return (
+        f"senko is installed but will not import on Python "
+        f"{sys.version_info.major}.{sys.version_info.minor}: {exc}\n"
+        f"This usually means one of its native dependencies publishes no wheel "
+        f"for this interpreter and was built from source instead. Reinstall on "
+        f"the Python jaano is tested against: `{REINSTALL_HINT}`."
+    )
 
 
 def _provenance() -> str:
