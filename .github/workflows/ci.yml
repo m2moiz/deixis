@@ -55,7 +55,14 @@ jobs:
       # to remove, so install it rather than accept the gap.
       - run: brew install ffmpeg
 
-      - run: uv sync --dev --extra diarize
+      # --extra whisper is here for pyright, not for pytest. Every fast test of
+      # the whisper engine stubs mlx-whisper, so the suite passes without it --
+      # but `jaano/whisper.py` imports it, and pyright under strict reports an
+      # unresolved import as an error, which is exactly what the first CI run
+      # of that file did. Installing it costs a torch download on a cold cache;
+      # the alternative is suppressing a real unresolved-import diagnostic that
+      # would then also hide a genuinely broken import.
+      - run: uv sync --dev --extra diarize --extra whisper
 
       # From PyPI rather than a third-party action or a piped install script.
       # rust-just 1.58.0 publishes a macosx_11_0_arm64 wheel, checked against
