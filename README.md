@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/m2moiz/jaano/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/m2moiz/jaano/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://github.com/m2moiz/dekho-suno-jaano/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/m2moiz/dekho-suno-jaano/actions/workflows/ci.yml/badge.svg"></a>
 <a href="pyproject.toml"><img alt="python" src="https://img.shields.io/badge/python-3.12+-blue"></a>
 <a href="#requirements"><img alt="platform" src="https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey"></a>
 <a href="docs/generalisation.md"><img alt="validated" src="https://img.shields.io/badge/validated-834%20recordings%20%C2%B7%20p%3D3.5e--94-brightgreen"></a>
@@ -101,13 +101,13 @@ the interesting part.
 ## Install
 
 ```bash
-uv tool install git+https://github.com/m2moiz/jaano
+uv tool install git+https://github.com/m2moiz/dekho-suno-jaano
 ```
 
 That puts `dsj` on your `PATH`. With speaker labels (see the caveats below):
 
 ```bash
-uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/jaano"
+uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/dekho-suno-jaano"
 ```
 
 Model weights (~2.4 GB) download on first run and are cached by
@@ -118,7 +118,7 @@ command at `.venv/bin/dsj` and links it nowhere, so from a clone every
 invocation is prefixed with `uv run`:
 
 ```bash
-git clone https://github.com/m2moiz/jaano
+git clone https://github.com/m2moiz/dekho-suno-jaano
 cd dsj
 uv sync                      # or: uv sync --extra diarize
 uv run dsj suno recording.mov -o transcript.json
@@ -200,7 +200,7 @@ default.
 It is an extra, because mlx-whisper pulls torch (~250 MB):
 
 ```bash
-uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/jaano"
+uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/dekho-suno-jaano"
 ```
 
 **Long runs.** An hour of audio is not something you sit and watch, so detach it

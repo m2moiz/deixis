@@ -39,7 +39,7 @@ from dsj.merge import Turn
 # no-op. `uv sync --extra diarize` only means anything inside a clone; someone
 # who ran `uv tool install` has no project to sync and needs the reinstall form.
 INSTALL_HINT = (
-    'uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/jaano"'
+    'uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/dekho-suno-jaano"'
     " (or `uv sync --extra diarize` from a clone)"
 )
 
@@ -49,7 +49,7 @@ INSTALL_HINT = (
 # reproduces the breakage on the same interpreter that caused it.
 REINSTALL_HINT = (
     'uv tool install --force --python 3.12 "dsj[diarize] @ '
-    'git+https://github.com/m2moiz/jaano"'
+    'git+https://github.com/m2moiz/dekho-suno-jaano"'
 )
 
 

@@ -41,7 +41,7 @@ README = REPO / "README.md"
 # rather than a copy so that editing the README's command and not this file is
 # a test failure rather than a silent drift.
 DOCUMENTED = re.compile(
-    r'uv tool install "dsj\[diarize\] @ git\+https://github\.com/m2moiz/jaano"'
+    r'uv tool install "dsj\[diarize\] @ git\+https://github\.com/m2moiz/dekho-suno-jaano"'
 )
 
 pytestmark = [
