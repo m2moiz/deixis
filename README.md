@@ -86,7 +86,10 @@ the interesting part.
 - **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], and the
   whisper engine through `mlx-whisper`. Both are Metal-backed; there is no CPU
   or CUDA path.
-- **Python 3.12+**
+- **Python 3.12 or 3.13.** Capped deliberately: the diarize extra reaches
+  coremltools, which publishes no wheel above 3.13 and no `requires-python` of
+  its own, so an uncapped range let `uv tool install` pick a Python where it
+  built from source and then failed to load.
 - **ffmpeg** on `PATH`, for anything that is not already a 16 kHz mono WAV.
 - [`uv`][uv] for dependency management.
 

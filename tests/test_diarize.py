@@ -9,6 +9,7 @@ of CoreML model load would still pass, and would still be the wrong test, so
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import sys
 from collections.abc import Callable, Iterator
@@ -107,6 +108,77 @@ def test_a_missing_senko_becomes_DiarizationUnavailable(
     # `brew install ffmpeg`. This is the common failure, not an exotic one:
     # senko is an extra and most installs will not have it.
     assert "uv sync --extra diarize" in str(caught.value)
+
+
+def test_an_installed_senko_that_will_not_load_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The failure that cost 45 minutes: installed, unimportable, misreported.
+
+    A native extension that fails to dlopen raises a plain ImportError, not
+    ModuleNotFoundError. The old handler caught both and answered both with
+    "senko is not installed. Install it with ..." -- an install command for a
+    package that was already installed, and the dlopen error, which names the
+    offending library, thrown away.
+
+    The real instance: `uv tool install` picked Python 3.14 because
+    requires-python had no cap, coremltools publishes no wheel above 3.13, so
+    it built from source and libmodelpackage would not load.
+    """
+    real_import = builtins.__import__
+
+    def explode(name: str, *args: Any, **kwargs: Any) -> ModuleType:
+        if name == "senko":
+            raise ImportError(
+                "dlopen(.../coremltools/libmodelpackage/libmodelpackage.dylib): "
+                "symbol not found"
+            )
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", explode)
+
+    with pytest.raises(DiarizationUnavailable) as caught:
+        speaker_turns(Path("anything.wav"))
+
+    message = str(caught.value)
+    # The three facts that would have ended it in a minute: it IS installed,
+    # which Python is running, and what actually failed.
+    assert "installed but will not import" in message
+    assert f"Python {sys.version_info.major}.{sys.version_info.minor}" in message
+    assert "libmodelpackage" in message
+    # And the remedy must be the one that changes the interpreter, not the one
+    # that reinstalls onto the same broken interpreter.
+    assert "--python 3.12" in message
+    assert "uv sync --extra diarize" not in message
+
+
+def test_a_missing_dependency_of_senko_is_not_reported_as_missing_senko(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dependency of senko is absent, which is not senko being absent.
+
+    Reinstalling jaano's extra cannot fix that, so the install hint must not be
+    the advice.
+
+    ModuleNotFoundError carries `name`; that field is the whole distinction
+    between this case and a genuinely absent senko.
+    """
+    real_import = builtins.__import__
+
+    def explode(name: str, *args: Any, **kwargs: Any) -> ModuleType:
+        if name == "senko":
+            raise ModuleNotFoundError("No module named 'coremltools'", name="coremltools")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", explode)
+
+    with pytest.raises(DiarizationUnavailable) as caught:
+        speaker_turns(Path("anything.wav"))
+
+    message = str(caught.value)
+    assert "installed but will not import" in message
+    assert "coremltools" in message
+    assert "uv sync --extra diarize" not in message
 
 
 def test_empty_turns_become_DiarizationUnavailable(fake_senko: SenkoInstaller) -> None:
