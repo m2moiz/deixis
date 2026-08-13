@@ -47,7 +47,7 @@ DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 SAMPLE_RATE = 16000
 
 INSTALL_HINT = (
-    'uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/jaano"'
+    'uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/dekho-suno-jaano"'
     " (or `uv sync --extra whisper` from a clone)"
 )
 

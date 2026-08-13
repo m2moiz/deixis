@@ -45,9 +45,9 @@ dsj = "dsj.cli:main"
 # An installed copy has no repository beside it. Without these, `pip show dsj`
 # on someone else's machine points nowhere.
 [project.urls]
-Homepage = "https://github.com/m2moiz/jaano"
-Source = "https://github.com/m2moiz/jaano"
-Issues = "https://github.com/m2moiz/jaano/issues"
+Homepage = "https://github.com/m2moiz/dekho-suno-jaano"
+Source = "https://github.com/m2moiz/dekho-suno-jaano"
+Issues = "https://github.com/m2moiz/dekho-suno-jaano/issues"
 
 [project.optional-dependencies]
 # mlx-whisper pulls torch (~250 MB) purely for its torch->mlx weight
