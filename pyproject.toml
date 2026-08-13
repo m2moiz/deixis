@@ -3,14 +3,22 @@ name = "jaano"
 version = "0.1.0"
 description = "Make a long screen recording answerable: a timestamped transcript indexes the video, frames are retrieved on demand."
 readme = "README.md"
-# Capped, not open-ended. `.python-version` pins 3.12 for the PROJECT, but
-# `uv tool install` from a git URL has no project context and never reads it --
-# it takes the newest interpreter this range allows, which on a machine with
-# Homebrew python3 was 3.14. coremltools, reached through the diarize extra,
-# publishes no wheel above 3.13 and declares no requires-python of its own, so
-# it built from source, installed cleanly, and failed at dlopen minutes later.
-# Nothing above 3.12 is tested here; the cap makes uv pick an interpreter that
-# works instead of one that merely satisfies a claim nobody checked.
+# Capped, not open-ended, and the reason is measured rather than assumed.
+#
+# coremltools -- reached through the diarize extra -- publishes macos-arm64
+# wheels for cp38-cp313 only and declares no requires-python of its own, so
+# nothing stops it being selected on a newer interpreter. On 3.14 uv builds its
+# sdist, and the build SUCCEEDS into a `py3-none-any` wheel with the CoreML
+# extensions absent. Nothing raises: `import coremltools` prints "Failed to
+# load '_MLGPUComputeDeviceRemoteProxy'" and carries on, `import senko` is
+# clean, and diarization then does not work -- which diarize.py's fail-soft
+# boundary turns into a transcript quietly missing its speaker labels.
+#
+# Observed on a forced 3.14 install: coremltools 9.0 at `Tag: py3-none-any`,
+# against `Tag: cp312-none-macosx_11_0_arm64` on 3.12.
+#
+# Nothing above 3.12 is tested here, so the open range was a claim nobody
+# checked. tests/test_install_gate.py is what now checks it.
 requires-python = ">=3.12,<3.14"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]

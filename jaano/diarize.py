@@ -145,10 +145,10 @@ def _import_senko() -> ModuleType:
         ) from exc
     except ImportError as exc:
         # Not a missing module: a module that is present and refuses to load.
-        # A native extension failing to dlopen lands here, and this branch
-        # exists because it used to land in the one above and be reported as
-        # "not installed" -- an hour of reinstalling something already
-        # installed, with the dlopen error thrown away.
+        # A native extension failing to dlopen lands here. It used to land in
+        # the branch above and be answered with "not installed" -- an install
+        # command for something already installed, with the loader error, the
+        # only useful line, thrown away.
         raise DiarizationUnavailable(_will_not_load(exc)) from exc
     return senko
 
@@ -156,12 +156,16 @@ def _import_senko() -> ModuleType:
 def _will_not_load(exc: ImportError) -> str:
     """The message for an extra that is installed and still will not import.
 
-    Leads with the running interpreter because that is the variable. senko's
-    dependency tree reaches native wheels, wheels are published per Python
-    version, and a version with no wheel gets built from source into something
-    that installs cleanly and fails at dlopen. The exception text names the
-    library that failed; it is the only actionable line in the failure and the
-    old handler discarded it.
+    Leads with the running interpreter because that is the variable: senko's
+    dependency tree reaches native wheels, and wheels are published per Python
+    version. The exception text names the library that failed, which is the
+    only actionable line in the failure, and the old handler discarded it.
+
+    NOT the message for the 3.14 coremltools incident, despite that being what
+    prompted this split. That build does not raise at all -- it imports clean
+    and loses CoreML silently, which is why pyproject caps requires-python and
+    tests/test_install_gate.py checks the wheel tag. This branch covers the
+    louder cousin: an extra that is present and refuses to load.
     """
     return (
         f"senko is installed but will not import on Python "
