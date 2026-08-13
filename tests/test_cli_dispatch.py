@@ -1,4 +1,4 @@
-"""The `jaano` command: does each verb reach the thing it names?
+"""The `dsj` command: does each verb reach the thing it names?
 
 Small surface, but the one that decides whether any of this is usable. The
 measurement that justifies frame retrieval (docs/do-marks-help.md) was only
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from jaano.cli import main
+from dsj.cli import main
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -132,7 +132,7 @@ def test_width_zero_keeps_the_source_resolution(video: Path, tmp_path: Path) -> 
 def test_a_bad_timestamp_surfaces_rather_than_writing_nothing(
     video: Path, tmp_path: Path
 ) -> None:
-    from jaano.media import MediaError
+    from dsj.media import MediaError
 
     with pytest.raises(MediaError, match="past the end"):
         main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])
@@ -141,13 +141,13 @@ def test_a_bad_timestamp_surfaces_rather_than_writing_nothing(
 def test_the_module_entry_point_reaches_the_mark_command(
     video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`python -m jaano.dekho` must still work, and must go through Typer.
+    """`python -m dsj.dekho` must still work, and must go through Typer.
 
     The direction of this reversed when the CLI moved to Typer: frames.main is
     now a shim ONTO the app rather than something the dispatcher calls. What
     matters either way is that the flags parse to the same values.
     """
-    import jaano.dekho as frames_mod
+    import dsj.dekho as frames_mod
 
     seen: dict[str, object] = {}
 
@@ -176,7 +176,7 @@ def test_mark_writes_elsewhere_when_told_to(
     The no--o case above passes whether or not the option is honoured, so on
     its own it pins nothing -- a mutant that ignored -o survived it.
     """
-    import jaano.dekho as frames_mod
+    import dsj.dekho as frames_mod
 
     seen: dict[str, object] = {}
 
@@ -193,7 +193,7 @@ def test_mark_writes_elsewhere_when_told_to(
 def test_the_module_entry_point_reaches_the_transcribe_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import jaano.suno as transcribe_mod
+    import dsj.suno as transcribe_mod
 
     seen: dict[str, object] = {}
 
@@ -218,7 +218,7 @@ def test_the_installed_console_script_works() -> None:
     directly -- and the console script is the whole point of this file.
     """
     proc = subprocess.run(
-        ["uv", "run", "jaano", "--help"], capture_output=True, text=True, check=False,
+        ["uv", "run", "dsj", "--help"], capture_output=True, text=True, check=False,
         cwd=Path(__file__).resolve().parent.parent,
     )
     assert proc.returncode == 0, proc.stderr
@@ -266,7 +266,7 @@ def test_a_missing_output_directory_says_so(video: Path, tmp_path: Path) -> None
     a calling agent actually makes, and it was being pointed at the wrong
     variable.
     """
-    from jaano.media import MediaError
+    from dsj.media import MediaError
 
     with pytest.raises(MediaError, match="does not exist"):
         main(["dikhao", str(video), "1.0", "-o", str(tmp_path / "nope" / "f.jpg")])
@@ -274,7 +274,7 @@ def test_a_missing_output_directory_says_so(video: Path, tmp_path: Path) -> None
 
 def test_past_the_end_still_says_past_the_end(video: Path, tmp_path: Path) -> None:
     """The hint is now conditional, so prove it still fires when it should."""
-    from jaano.media import MediaError
+    from dsj.media import MediaError
 
     with pytest.raises(MediaError, match="past the end of this"):
         main(["dikhao", str(video), "9999", "-o", str(tmp_path / "f.jpg")])

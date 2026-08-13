@@ -6,7 +6,7 @@ recording: 750s of audio done after 21.5s of wall clock.
 
 import pytest
 
-from jaano.suno import Progress, render_bar
+from dsj.suno import Progress, render_bar
 
 # One real observed sample from a live run.
 REAL = Progress(audio_done_s=750.0, audio_total_s=4427.028, elapsed_s=21.5)

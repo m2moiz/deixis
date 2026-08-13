@@ -65,8 +65,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import numpy as np
 
-from jaano import media as media_mod
-from jaano.atomic import atomic_write_text
+from dsj import media as media_mod
+from dsj.atomic import atomic_write_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -79,7 +79,7 @@ type Payload = dict[str, Any]
 class MarkError(RuntimeError):
     """The transcript handed to the mark pass is not one."""
 
-logger = logging.getLogger("jaano.dekho")
+logger = logging.getLogger("dsj.dekho")
 
 # 128x84 over a 2940x1912 source is ~23x23-pixel tiles. Chosen by sweep, not by
 # taste: 32x21 was too coarse to see a form scroll, and 128x84 costs 518s of
@@ -306,7 +306,7 @@ def mark_video(
     if not isinstance(loaded, dict):
         raise MarkError(
             f"{transcript} is not a transcript: expected a JSON object, found "
-            f"{type(loaded).__name__}. Pass the file `jaano suno` wrote."
+            f"{type(loaded).__name__}. Pass the file `dsj suno` wrote."
         )
     payload: Payload = cast("Payload", loaded)
 
@@ -336,13 +336,13 @@ def mark_video(
 def main(argv: list[str] | None = None) -> int:
     """Run the mark CLI.
 
-    A shim onto `jaano.cli` for the same reason as transcribe's: one
+    A shim onto `dsj.cli` for the same reason as transcribe's: one
     definition of every flag, two ways to reach it.
 
     Returns:
         A process exit code.
     """
-    from jaano.cli import run
+    from dsj.cli import run
 
     return run(["dekho", *(sys.argv[1:] if argv is None else argv)])
 

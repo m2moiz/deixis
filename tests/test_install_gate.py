@@ -2,7 +2,7 @@
 
 Every other test in this suite runs against the working tree through `uv run`,
 where `.python-version` pins the interpreter to 3.12 and the extras are already
-synced. That is not how anyone installs jaano. The README tells a stranger to
+synced. That is not how anyone installs dsj. The README tells a stranger to
 run `uv tool install`, which has no project context, reads no
 `.python-version`, and resolves its own interpreter from `requires-python`.
 
@@ -41,7 +41,7 @@ README = REPO / "README.md"
 # rather than a copy so that editing the README's command and not this file is
 # a test failure rather than a silent drift.
 DOCUMENTED = re.compile(
-    r'uv tool install "jaano\[diarize\] @ git\+https://github\.com/m2moiz/jaano"'
+    r'uv tool install "dsj\[diarize\] @ git\+https://github\.com/m2moiz/dsj"'
 )
 
 pytestmark = [
@@ -55,7 +55,7 @@ def _uv(*args: str, tool_dir: Path) -> subprocess.CompletedProcess[str]:
 
     UV_TOOL_DIR and UV_TOOL_BIN_DIR are what keep this from touching the
     operator's real `uv tool` installs -- the gate must not be able to clobber
-    a working jaano on the machine running it.
+    a working dsj on the machine running it.
     """
     env = os.environ | {
         "UV_TOOL_DIR": str(tool_dir),
@@ -79,7 +79,7 @@ def test_the_readme_still_publishes_the_command_this_gate_runs() -> None:
     )
 
 
-def test_the_documented_install_produces_a_working_diarizing_jaano(
+def test_the_documented_install_produces_a_working_diarizing_dsj(
     tmp_path: Path,
 ) -> None:
     """Run the README's command, then import the extra that broke.
@@ -90,7 +90,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
     interpreter choice -- is the published path untouched.
     """
     tool_dir = tmp_path / "tools"
-    spec = f'jaano[diarize] @ git+file://{REPO}'
+    spec = f'dsj[diarize] @ git+file://{REPO}'
 
     install = _uv("tool", "install", "--force", spec, tool_dir=tool_dir)
     assert install.returncode == 0, (
@@ -99,8 +99,8 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
 
     # 1. The console script exists. `uv sync` puts it somewhere nothing can
     #    reach; this is the difference the README's install section is about.
-    binary = tool_dir / "bin" / "jaano"
-    assert binary.is_file(), f"no jaano executable in {tool_dir / 'bin'}"
+    binary = tool_dir / "bin" / "dsj"
+    assert binary.is_file(), f"no dsj executable in {tool_dir / 'bin'}"
 
     # 2. It runs.
     helped = subprocess.run(
@@ -109,7 +109,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
     assert helped.returncode == 0, helped.stderr
     assert "dikhao" in helped.stdout
 
-    env_python = tool_dir / "jaano" / "bin" / "python"
+    env_python = tool_dir / "dsj" / "bin" / "python"
     assert env_python.is_file(), f"no interpreter in the tool env at {env_python}"
 
     # 3. The interpreter obeys the cap. This is the bug itself: with
@@ -140,7 +140,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
         timeout=600,
     )
     assert imported.returncode == 0, (
-        f"jaano[diarize] installed on Python {version} and senko will not "
+        f"dsj[diarize] installed on Python {version} and senko will not "
         f"import:\n{imported.stderr}"
     )
 
@@ -153,7 +153,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
     #    absent. Nothing raises. `import coremltools` prints "Failed to load
     #    '_MLGPUComputeDeviceRemoteProxy'" to stderr and carries on; `import
     #    senko` is clean. The install is green, the import is green, and
-    #    diarization then does not work -- which jaano's fail-soft boundary
+    #    diarization then does not work -- which dsj's fail-soft boundary
     #    turns into a transcript quietly missing its speaker labels.
     #
     #    So an import check cannot catch this and a returncode cannot either.
@@ -180,7 +180,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
         f"import cleanly and diarization will not run."
     )
 
-    # 5. And jaano's own boundary agrees. `_import_senko` is what converts a
+    # 5. And dsj's own boundary agrees. `_import_senko` is what converts a
     #    load failure into DiarizationUnavailable, and a green import above
     #    with a raising boundary here would mean the boundary is lying.
     boundary = subprocess.run(
@@ -188,7 +188,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
             str(env_python),
             "-c",
             "import json\n"
-            "from jaano.diarize import _import_senko\n"
+            "from dsj.diarize import _import_senko\n"
             "print(json.dumps({'module': _import_senko().__name__}))",
         ],
         capture_output=True,
@@ -197,7 +197,7 @@ def test_the_documented_install_produces_a_working_diarizing_jaano(
         timeout=600,
     )
     assert boundary.returncode == 0, (
-        f"senko imports but jaano's diarize boundary still refuses it:\n{boundary.stderr}"
+        f"senko imports but dsj's diarize boundary still refuses it:\n{boundary.stderr}"
     )
     assert json.loads(boundary.stdout)["module"] == "senko"
 

@@ -33,13 +33,13 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, NamedTuple
 
-from jaano.merge import Turn
+from dsj.merge import Turn
 
-# Two hints, because there are two ways to have jaano and the wrong one is a
+# Two hints, because there are two ways to have dsj and the wrong one is a
 # no-op. `uv sync --extra diarize` only means anything inside a clone; someone
 # who ran `uv tool install` has no project to sync and needs the reinstall form.
 INSTALL_HINT = (
-    'uv tool install "jaano[diarize] @ git+https://github.com/m2moiz/jaano"'
+    'uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/jaano"'
     " (or `uv sync --extra diarize` from a clone)"
 )
 
@@ -48,7 +48,7 @@ INSTALL_HINT = (
 # this one -- the interpreter is the variable, and repeating the plain install
 # reproduces the breakage on the same interpreter that caused it.
 REINSTALL_HINT = (
-    'uv tool install --force --python 3.12 "jaano[diarize] @ '
+    'uv tool install --force --python 3.12 "dsj[diarize] @ '
     'git+https://github.com/m2moiz/jaano"'
 )
 
@@ -75,7 +75,7 @@ class Diarization(NamedTuple):
 def speaker_turns(wav: Path) -> Diarization:
     """Diarize `wav`, or raise DiarizationUnavailable.
 
-    `wav` is the 16 kHz mono pcm_s16le file jaano.media already produced for
+    `wav` is the 16 kHz mono pcm_s16le file dsj.media already produced for
     the ASR pass, which is exactly what senko wants. The path is handed over
     rather than samples, so senko reads the rate from the header instead of both
     sides hardcoding an agreement that happens to hold today.
@@ -87,7 +87,7 @@ def speaker_turns(wav: Path) -> Diarization:
     senko = _import_senko()
 
     try:
-        # quiet=True is already the default; passed explicitly because jaano
+        # quiet=True is already the default; passed explicitly because dsj
         # renders its own progress and a second progress tree on stderr would
         # fight it.
         result = senko.Diarizer(quiet=True).diarize(str(wav))
@@ -127,7 +127,7 @@ def _import_senko() -> ModuleType:
     """Import senko, or say how to get it.
 
     Function-local, mirroring how transcribe() imports parakeet: the extra being
-    absent is the common case and must cost nothing at jaano import time.
+    absent is the common case and must cost nothing at dsj import time.
     """
     try:
         import senko
@@ -172,7 +172,7 @@ def _will_not_load(exc: ImportError) -> str:
         f"{sys.version_info.major}.{sys.version_info.minor}: {exc}\n"
         f"This usually means one of its native dependencies publishes no wheel "
         f"for this interpreter and was built from source instead. Reinstall on "
-        f"the Python jaano is tested against: `{REINSTALL_HINT}`."
+        f"the Python dsj is tested against: `{REINSTALL_HINT}`."
     )
 
 

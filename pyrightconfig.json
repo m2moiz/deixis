@@ -1,5 +1,5 @@
 {
-  "include": ["jaano"],
+  "include": ["dsj"],
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false
 }

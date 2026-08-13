@@ -19,10 +19,10 @@ from typing import Any, Protocol, cast
 
 import pytest
 
-from jaano.diarize import Diarization, DiarizationUnavailable, speaker_turns
-from jaano.merge import Turn
+from dsj.diarize import Diarization, DiarizationUnavailable, speaker_turns
+from dsj.merge import Turn
 
-# senko ships no type information, so its result arrives as Any -- jaano.diarize
+# senko ships no type information, so its result arrives as Any -- dsj.diarize
 # pins the same shape at its own boundary (Sequence[Mapping[str, Any]]). The
 # stand-in mirrors that: the keys are known, the values are whatever senko put
 # there. None is what senko returns when its VAD finds no speech at all.
@@ -157,7 +157,7 @@ def test_a_missing_dependency_of_senko_is_not_reported_as_missing_senko(
 ) -> None:
     """A dependency of senko is absent, which is not senko being absent.
 
-    Reinstalling jaano's extra cannot fix that, so the install hint must not be
+    Reinstalling dsj's extra cannot fix that, so the install hint must not be
     the advice.
 
     ModuleNotFoundError carries `name`; that field is the whole distinction
@@ -275,7 +275,7 @@ def test_labels_map_back_to_senkos_names(fake_senko: SenkoInstaller) -> None:
 
 
 def test_the_diarizer_is_asked_to_stay_quiet(fake_senko: SenkoInstaller) -> None:
-    # jaano renders its own progress; a second progress tree on stderr would
+    # dsj renders its own progress; a second progress tree on stderr would
     # fight the bar.
     module = fake_senko(
         lambda wav_path: {"merged_segments": [{"speaker": "S", "start": 0.0, "end": 1.0}]}

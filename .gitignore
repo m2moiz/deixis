@@ -48,3 +48,4 @@ mutants/
 # cannot be unpacked anywhere but this laptop. graphify-out/ is generated.
 .codegraph
 graphify-out/
+.audit/

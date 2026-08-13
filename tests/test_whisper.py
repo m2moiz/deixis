@@ -2,7 +2,7 @@
 
 mlx-whisper is stubbed in every fast test here -- not to avoid asserting on a
 stub, but because what these tests are about IS the boundary: which keyword
-arguments jaano sends, and what it does with the dict that comes back. The one
+arguments dsj sends, and what it does with the dict that comes back. The one
 test that runs the real thing is slow-marked and runs whisper-tiny against
 speech `say` synthesizes, so nothing binary is committed.
 """
@@ -21,9 +21,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from jaano import whisper as whisper_mod
-from jaano.suno import transcribe
-from jaano.whisper import ROMAN_URDU_PROMPT, WhisperUnavailable, transcribe_whisper
+from dsj import whisper as whisper_mod
+from dsj.suno import transcribe
+from dsj.whisper import ROMAN_URDU_PROMPT, WhisperUnavailable, transcribe_whisper
 
 
 def _stub_mlx_whisper(
@@ -33,7 +33,7 @@ def _stub_mlx_whisper(
 
     transcribe_whisper imports it inside the function body, so the import runs
     on every call and reads sys.modules fresh -- there is no
-    jaano.whisper.mlx_whisper attribute to patch.
+    dsj.whisper.mlx_whisper attribute to patch.
     """
     module = ModuleType("mlx_whisper")
 
@@ -113,12 +113,12 @@ def test_numpy_times_are_narrowed_to_floats(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_the_call_asks_for_words_and_silences_the_bar(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two arguments jaano cannot get wrong, pinned against upstream drift.
+    """Two arguments dsj cannot get wrong, pinned against upstream drift.
 
     `word_timestamps=True` is the reason to choose whisper here at all -- the
     speaker vote is per token. `verbose=None` reads backwards: mlx-whisper
     disables its tqdm on `verbose is not False`, so False is the value that
-    PRINTS an 11,580-frame bar over jaano's own progress line.
+    PRINTS an 11,580-frame bar over dsj's own progress line.
     """
     seen: dict[str, Any] = {}
     _stub_mlx_whisper(monkeypatch, _result(), seen)
@@ -151,7 +151,7 @@ def test_the_whisper_engine_writes_the_schema_and_leaves_no_checkpoint(
 
     Downstream -- dekho, and any agent reading the index -- must not be able to
     tell which engine wrote it apart from the model id. The checkpoint check is
-    the other half: whisper has no chunk loop of jaano's to bank, so a file
+    the other half: whisper has no chunk loop of dsj's to bank, so a file
     beside the output would be a stale one nothing could ever resume from.
     """
     _stub_mlx_whisper(monkeypatch, _result())
@@ -184,7 +184,7 @@ def test_roman_urdu_sets_the_engine_the_language_and_the_prompt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """One flag, because the three that make it work are not guessable."""
-    import jaano.suno as suno_mod
+    import dsj.suno as suno_mod
 
     seen: dict[str, object] = {}
 
@@ -214,7 +214,7 @@ def test_a_real_whisper_run_returns_words_with_times(tmp_path: Path) -> None:
 
     whisper-tiny rather than the default turbo, and three seconds of `say`
     rather than a committed clip: the point is that a real model returns the
-    shape jaano maps, not that a small model is accurate.
+    shape dsj maps, not that a small model is accurate.
     """
     wav = tmp_path / "said.wav"
     subprocess.run(
@@ -226,7 +226,7 @@ def test_a_real_whisper_run_returns_words_with_times(tmp_path: Path) -> None:
 
     # Two words, not the sentence: tiny heard "the quick brown socks." on the
     # first run of this test. Its accuracy is not what is on trial -- that
-    # something real came back, in the shape jaano maps, is.
+    # something real came back, in the shape dsj maps, is.
     assert "quick brown" in got.text.lower()
     tokens = [t for s in got.sentences for t in s["tokens"]]
     assert len(tokens) >= 4

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from conftest import FakeToken
 
-from jaano.suno import main
+from dsj.suno import main
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from conftest import FakeModel
 
-    from jaano.suno import Payload
+    from dsj.suno import Payload
 
 # main() feeds a path straight through transcribe(), which probes it for real
 # and diarizes for real; these tests are about the summary and about neither of
@@ -132,7 +132,7 @@ def test_no_resume_is_passed_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The flag is only useful if it reaches transcribe()."""
-    import jaano.suno as transcribe_mod
+    import dsj.suno as transcribe_mod
 
     fake_parakeet(tokens=_tokens())
     seen: list[bool] = []
@@ -163,7 +163,7 @@ def test_the_diarize_flags_are_passed_through(
     A flag argparse accepts and main() then drops is worse than no flag: the
     user gets the behaviour they asked to avoid, silently and with exit 0.
     """
-    import jaano.suno as transcribe_mod
+    import dsj.suno as transcribe_mod
 
     fake_parakeet(tokens=_tokens())
     seen: list[tuple[bool, bool]] = []
@@ -194,7 +194,7 @@ def test_the_summary_counts_speakers_only_when_there_are_some(
     docstring); a count read out of the payload cannot divide by zero and
     cannot credit this run with a previous one's work.
     """
-    from jaano.merge import Turn
+    from dsj.merge import Turn
 
     fake_parakeet(tokens=_tokens())
     fake_turns(turns=[Turn(0.0, 20.0, 0), Turn(20.0, 30.0, 1)],

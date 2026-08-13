@@ -1,8 +1,8 @@
-"""The one shape every ASR engine in jaano returns.
+"""The one shape every ASR engine in dsj returns.
 
 parakeet and whisper agree on almost nothing. parakeet-mlx hands back an
 `AlignedResult` of `AlignedToken`s and is driven chunk by chunk from
-jaano/chunking.py so a run can resume; whisper owns its own 30-second window
+dsj/chunking.py so a run can resume; whisper owns its own 30-second window
 loop and returns segments carrying words. Naming what they must both produce
 keeps that difference inside the two backends instead of spreading it through
 suno.py.

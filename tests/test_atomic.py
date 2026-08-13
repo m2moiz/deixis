@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from jaano.atomic import atomic_write_text
+from dsj.atomic import atomic_write_text
 
 # Big enough that the write cannot complete in one syscall-sized gulp, which is
 # what makes the torn-read window wide enough to hit reliably. With a 200-byte
@@ -65,7 +65,7 @@ def test_temp_file_is_a_sibling_so_the_rename_stays_on_one_filesystem(
     # with a target on the data volume is EXDEV on this machine.
     import os
 
-    from jaano import atomic
+    from dsj import atomic
 
     target = tmp_path / "status.json"
     seen: list[Path] = []
@@ -90,7 +90,7 @@ class Boom(Exception):
 
 def _explode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail at the rename, the last possible moment -- so a temp file exists."""
-    from jaano import atomic
+    from dsj import atomic
 
     def boom(src: Path, dst: Path) -> None:
         raise Boom
@@ -135,7 +135,7 @@ def test_fsync_is_off_by_default_and_reaches_the_file_when_asked(
     regenerate. The checkpoint that jaano-fdy adds inverts that trade, so the
     same primitive has to be able to do both.
     """
-    from jaano import atomic
+    from dsj import atomic
 
     synced: list[int] = []
     # def, not lambda: strict flags every unannotated lambda parameter, and a
