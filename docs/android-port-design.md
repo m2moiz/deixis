@@ -10,10 +10,10 @@ Everything below is an **extraction**: modules move imports, not behavior.
 The only new code is one vendored file, the engine registry, and (later) two
 new engine modules.
 
-## Why jaano cannot run on the phone today
+## Why dsj cannot run on the phone today
 
 `parakeet-mlx` is a hard dependency (`pyproject.toml`), and MLX ships no
-aarch64-Linux wheels, so `uv tool install jaano` fails at resolve time. Worse,
+aarch64-Linux wheels, so `uv tool install dsj` fails at resolve time. Worse,
 the coupling is not confined to the parakeet engine: `checkpoint.py:26` uses
 parakeet's `AlignedToken` as its on-disk token type, and `chunking.py:27-47`
 imports parakeet's merge/sentence helpers and log-mel frontend. The class that
@@ -28,7 +28,7 @@ The full verified import surface: `checkpoint.py:26`, `chunking.py:27-47`,
 ## Module layout — flat, 12 modules become 16
 
 ```
-jaano/
+dsj/
   asr.py          contract + registry + EngineUnavailable      (grows)
   alignment.py    NEW: vendored token type + 4 merge helpers   (core)
   chunking.py     resumable chunk loop, engine-free            (loses parakeet imports)
@@ -42,16 +42,16 @@ jaano/
   whispercpp.py   LATER                          file engine,  portable
 ```
 
-**Flat, not `jaano/engines/`.** The blueprint lane proposed moving the chunk
-loop into `jaano/engines/parakeet.py`; the design lane kept the layout flat
+**Flat, not `dsj/engines/`.** The blueprint lane proposed moving the chunk
+loop into `dsj/engines/parakeet.py`; the design lane kept the layout flat
 and made `chunking.py` engine-generic instead. Flat wins on both counts: a
-subpackage renames `jaano.whisper` and churns imports and monkeypatch targets
+subpackage renames `dsj.whisper` and churns imports and monkeypatch targets
 for zero behavior change, and the deeper point is that the chunk loop is NOT
 parakeet-specific once it is handed tokens instead of a model — it is resume
 machinery, and sherpa needs it too. The boundary is enforced by a test, not a
 directory (see CI).
 
-## `jaano/alignment.py` — the vendored token vocabulary
+## `dsj/alignment.py` — the vendored token vocabulary
 
 parakeet-mlx 0.5.2's `alignment.py` is 287 lines of pure Python + numpy.
 Nothing in it touches MLX. License: Apache-2.0 (dist-info
@@ -88,9 +88,9 @@ absence genuinely leaves nothing to compare.
 ## Engine contract — two protocols, and only ever two
 
 ```python
-# jaano/asr.py
+# dsj/asr.py
 class ChunkEngine(Protocol):
-    """An engine jaano drives chunk by chunk, so a run can resume.
+    """An engine dsj drives chunk by chunk, so a run can resume.
 
     parakeet and sherpa both decode a chunk from fresh decoder state --
     that statelessness is what makes resume exact. An engine that carries
@@ -128,7 +128,7 @@ logmel+generate+walk → `engine.decode(chunk)` then the same `+= offset` walk.
 The offset walk stays byte-identical, including re-assigning `token.end`
 after shifting `token.start` — `__post_init__` does not re-run on assignment.
 
-`DecodingConfig` leaves the signature. Verified: jaano only ever reads
+`DecodingConfig` leaves the signature. Verified: dsj only ever reads
 `cfg.sentence`, which defaults to `SentenceConfig()`; the decoding half is
 engine business and moves into `parakeet.py`'s `load()`.
 
@@ -178,8 +178,8 @@ diarize  = ["senko>=0.1.0,<0.2"]
 # Portable
 sherpa   = ["sherpa-onnx>=1.10"]         # pin verified at implementation time
 # Convenience (PEP 685 self-referencing)
-apple    = ["jaano[parakeet,diarize]"]
-android  = ["jaano[sherpa]"]
+apple    = ["dsj[parakeet,diarize]"]
+android  = ["dsj[sherpa]"]
 ```
 
 `whispercpp` gets **no extra** — it shells out to a binary. Discovery is
@@ -187,7 +187,7 @@ android  = ["jaano[sherpa]"]
 install hint names the package manager, never a uv command.
 
 **No environment markers on parakeet-mlx.** `sys_platform == 'darwin'` would
-make `jaano[parakeet]` on Android succeed while installing nothing — the
+make `dsj[parakeet]` on Android succeed while installing nothing — the
 silent-degradation class that already cost this project a 45-minute recording.
 The wrong extra must fail loudly at resolve time.
 
@@ -298,7 +298,7 @@ system.
 | `install-gate-linux` | `ubuntu-24.04-arm` (verify availability first) | the documented Android install line resolves, imports, and decodes on CPU |
 | **AST boundary test** | in `check` | core modules import no backend |
 
-The boundary test AST-parses every non-engine `jaano/*.py` and asserts no
+The boundary test AST-parses every non-engine `dsj/*.py` and asserts no
 import of `{parakeet_mlx, mlx_whisper, mlx, senko, sherpa_onnx, coremltools}`.
 AST, not grep — prose mentions must not fail it. This is what makes "core is
 portable" a fact rather than a claim, on a platform where nothing else would
@@ -313,10 +313,10 @@ not-CI-observable.
 
 `test_install_gate.py`'s `DOCUMENTED` regex pins the README's literal
 command; it changes in the same commit as the README (its own drift test
-enforces this). New gate assertion: `jaano --help` exits 0 without
-`[parakeet]` installed, and a real `jaano suno` without the extra fails with
+enforces this). New gate assertion: `dsj --help` exits 0 without
+`[parakeet]` installed, and a real `dsj suno` without the extra fails with
 the message naming the extra. `pyproject`'s mutmut `only_mutate` gains
-`jaano/alignment.py` — pure, fast-testable, exactly the shape that list
+`dsj/alignment.py` — pure, fast-testable, exactly the shape that list
 exists for; today the four helpers have zero fast-lane direct tests.
 
 ## What NOT to build
@@ -355,10 +355,10 @@ on it cleanly. Step 3 is the highest-risk commit and needs `just verify`
 
 ## Open questions (decide before step 4; steps 1–3 proceed regardless)
 
-1. **Product decision:** what does bare `uv tool install jaano` mean once
+1. **Product decision:** what does bare `uv tool install dsj` mean once
    parakeet is an extra? Either the README's headline line becomes
-   `jaano[apple]` (recommended: macOS is the primary platform and a default
-   install with no working engine is a trap), or bare `jaano` stays and is
+   `dsj[apple]` (recommended: macOS is the primary platform and a default
+   install with no working engine is a trap), or bare `dsj` stays and is
    documented as the minimal/Termux form. This changes the install-gate regex
    and the "Requirements: macOS on Apple Silicon" README section, which
    becomes false once the base package is portable.
