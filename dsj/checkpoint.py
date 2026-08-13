@@ -38,6 +38,13 @@ class Fingerprint:
     Reusing a checkpoint across any of these produces a transcript that is
     wrong without looking wrong, so the check is exact equality of the whole
     record rather than a heuristic on a few fields.
+
+    `engine_fields` is the engine's own contribution (dsj.parakeet supplies
+    `{"parakeet_version": ...}`), and it is why cross-engine reuse is
+    impossible without a version bump: two engines contribute different KEY
+    SETS, so their serialized fingerprints can never be equal even where every
+    shared value collides. Stronger than comparing an engine-name value, and
+    free.
     """
 
     schema: int
@@ -46,9 +53,23 @@ class Fingerprint:
     media_mtime_ns: int
     total_samples: int
     model_id: str
-    parakeet_version: str
     chunk_s: float
     overlap_s: float
+    engine_fields: dict[str, str]
+
+    def to_dict(self) -> dict[str, Any]:
+        """The comparable, serializable form. Engine keys merge FLAT.
+
+        A parakeet fingerprint must serialize byte-identically to what dsj
+        wrote before this field existed -- when `parakeet_version` was a flat
+        dataclass field -- or every checkpoint on disk stops matching on
+        upgrade. Silently: a mismatch is not an error, it is a re-transcription
+        of an hour of audio. tests/test_checkpoint_golden.py holds this shape
+        against a checkpoint written by the pre-extraction code.
+        """
+        return {
+            k: v for k, v in dataclasses.asdict(self).items() if k != "engine_fields"
+        } | self.engine_fields
 
 
 def fingerprint(
@@ -57,6 +78,7 @@ def fingerprint(
     model_id: str,
     chunk_s: float,
     overlap_s: float,
+    engine_fields: dict[str, str],
 ) -> Fingerprint:
     """Describe the run precisely enough that a stale checkpoint cannot match.
 
@@ -71,9 +93,11 @@ def fingerprint(
     edits: it is the only field that catches an ffmpeg upgrade decoding the
     same untouched file to a different length, which would silently shift every
     chunk boundary.
-    """
-    from importlib.metadata import version
 
+    `engine_fields` comes from the engine module's fingerprint_fields() --
+    the caller does not invent it, because the engine knows what invalidates
+    its own tokens (for parakeet: the vendored merge functions' ancestry).
+    """
     st = media.stat()
     return Fingerprint(
         schema=SCHEMA,
@@ -82,11 +106,9 @@ def fingerprint(
         media_mtime_ns=st.st_mtime_ns,
         total_samples=total_samples,
         model_id=model_id,
-        # The merge functions live upstream. If they change, tokens merged by
-        # the old ones cannot be extended by the new ones.
-        parakeet_version=version("parakeet-mlx"),
         chunk_s=chunk_s,
         overlap_s=overlap_s,
+        engine_fields=engine_fields,
     )
 
 
@@ -121,7 +143,7 @@ def write_checkpoint(
     megabytes; an append log would buy nothing and cost a recovery path.
     """
     payload = {
-        "fingerprint": dataclasses.asdict(fp),
+        "fingerprint": fp.to_dict(),
         "next_start": next_start,
         "tokens": [_to_json(t) for t in tokens],
     }
@@ -192,7 +214,7 @@ def read_checkpoint(path: Path, fp: Fingerprint) -> tuple[int, list[AlignedToken
     # the shape check happens below, in the try.
     payload = cast("dict[str, Any]", raw)
 
-    if payload.get("fingerprint") != dataclasses.asdict(fp):
+    if payload.get("fingerprint") != fp.to_dict():
         return None
 
     try:

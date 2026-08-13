@@ -31,9 +31,9 @@ FP = Fingerprint(
     media_mtime_ns=1_700_000_000_000_000_000,
     total_samples=70_832_448,
     model_id="mlx-community/parakeet-tdt-0.6b-v3",
-    parakeet_version="0.5.2",
     chunk_s=120.0,
     overlap_s=15.0,
+    engine_fields={"parakeet_version": "0.5.2"},
 )
 
 TOKENS = [
@@ -84,7 +84,7 @@ def test_a_truncated_checkpoint_is_discarded(tmp_path: Path) -> None:
 
 def test_well_formed_json_of_the_wrong_shape_is_discarded(tmp_path: Path) -> None:
     p = tmp_path / "out.json.ckpt"
-    p.write_text(json.dumps({"fingerprint": dataclasses.asdict(FP), "tokens": "nope"}))
+    p.write_text(json.dumps({"fingerprint": FP.to_dict(), "tokens": "nope"}))
     assert read_checkpoint(p, FP) is None
 
 
@@ -99,9 +99,11 @@ def test_every_fingerprint_field_invalidates(tmp_path: Path) -> None:
         "media_mtime_ns": 1,
         "total_samples": 1,
         "model_id": "mlx-community/parakeet-tdt-0.6b-v2",
-        "parakeet_version": "0.6.0",
         "chunk_s": 60.0,
         "overlap_s": 5.0,
+        # A different engine version, and separately a different engine
+        # entirely -- the KEY SET differing is what blocks cross-engine reuse.
+        "engine_fields": {"parakeet_version": "0.6.0"},
     }
     assert set(changed) == {f.name for f in dataclasses.fields(Fingerprint)}, (
         "a field was added to Fingerprint without a case here"
@@ -142,26 +144,28 @@ def test_the_fingerprint_describes_the_source_media_not_a_temp_wav(tmp_path: Pat
     source.write_bytes(b"pretend this is a screen recording")
 
     fp = fingerprint(source, total_samples=70_832_448, model_id="m",
-                     chunk_s=120.0, overlap_s=15.0)
+                     chunk_s=120.0, overlap_s=15.0,
+                     engine_fields={"parakeet_version": "0.5.2"})
 
     assert fp.media == str(source.resolve())
     assert fp.media_size == source.stat().st_size
     assert fp.media_mtime_ns == source.stat().st_mtime_ns
 
     # Taken twice, with a different extraction in between, it is the same.
-    assert fingerprint(source, 70_832_448, "m", 120.0, 15.0) == fp
+    assert fingerprint(source, 70_832_448, "m", 120.0, 15.0,
+                       engine_fields={"parakeet_version": "0.5.2"}) == fp
 
 
 def test_a_re_encoded_source_invalidates(tmp_path: Path) -> None:
     source = tmp_path / "recording.mov"
     source.write_bytes(b"first cut")
-    before = fingerprint(source, 100, "m", 120.0, 15.0)
+    before = fingerprint(source, 100, "m", 120.0, 15.0, engine_fields={})
 
     p = tmp_path / "out.json.ckpt"
     write_checkpoint(p, before, next_start=0, tokens=TOKENS)
 
     source.write_bytes(b"a different, longer second cut")
-    after = fingerprint(source, 100, "m", 120.0, 15.0)
+    after = fingerprint(source, 100, "m", 120.0, 15.0, engine_fields={})
 
     assert read_checkpoint(p, after) is None
 
@@ -181,7 +185,7 @@ def _write_raw(path: Path, **overrides: object) -> None:
     file, which is exactly what the validation is for.
     """
     payload: dict[str, object] = {
-        "fingerprint": dataclasses.asdict(FP),
+        "fingerprint": FP.to_dict(),
         "next_start": 44,
         "tokens": [
             {"id": 5, "text": " hello", "start": 1.25, "duration": 0.32, "confidence": 0.91}
@@ -248,7 +252,7 @@ def test_integer_valued_token_numbers_are_accepted(tmp_path: Path) -> None:
 def test_the_fingerprint_records_every_field_it_claims_to(tmp_path: Path) -> None:
     """Each field is actually populated, not merely present.
 
-    Six mutants -- schema, total_samples, model_id, parakeet_version, chunk_s,
+    Six mutants -- schema, total_samples, model_id, engine_fields, chunk_s,
     overlap_s each replaced by None -- survived. `test_every_fingerprint_field
     _invalidates` could not see them: it compares two fingerprints built by the
     SAME function, so a field nulled on both sides still differs wherever it
@@ -259,16 +263,17 @@ def test_the_fingerprint_records_every_field_it_claims_to(tmp_path: Path) -> Non
     source.write_bytes(b"x")
 
     fp = fingerprint(source, total_samples=70_832_448, model_id="m",
-                     chunk_s=120.0, overlap_s=15.0)
+                     chunk_s=120.0, overlap_s=15.0,
+                     engine_fields={"parakeet_version": "0.5.2"})
 
     assert fp.schema == SCHEMA
     assert fp.total_samples == 70_832_448
     assert fp.model_id == "m"
     assert fp.chunk_s == 120.0
     assert fp.overlap_s == 15.0
-    # Not pinned to a literal: it moves when the dependency does, and the point
-    # is that SOMETHING was read, not which release is installed.
-    assert fp.parakeet_version and fp.parakeet_version != "None"
+    # The engine's contribution rides through untouched; the caller supplies
+    # it (production sources it from the engine's fingerprint_fields()).
+    assert fp.engine_fields == {"parakeet_version": "0.5.2"}
 
 
 def test_the_checkpoint_is_written_with_fsync(

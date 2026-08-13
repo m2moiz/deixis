@@ -37,9 +37,12 @@ GOLDEN_FP = Fingerprint(
     media_mtime_ns=1755087412000000000,
     total_samples=71424000,
     model_id="mlx-community/parakeet-tdt-0.6b-v3",
-    parakeet_version="0.5.2",
     chunk_s=120.0,
     overlap_s=15.0,
+    # In the file this is the FLAT key `parakeet_version` -- the shape the
+    # pre-extraction writer produced. Fingerprint.to_dict() must keep
+    # serializing to exactly that, which is most of what this file tests.
+    engine_fields={"parakeet_version": "0.5.2"},
 )
 
 
@@ -86,7 +89,7 @@ def test_golden_checkpoint_bytes_are_what_the_writer_wrote() -> None:
     """
     payload = json.loads(GOLDEN.read_text())
     assert set(payload) == {"fingerprint", "next_start", "tokens"}
-    assert payload["fingerprint"] == dataclasses.asdict(GOLDEN_FP)
+    assert payload["fingerprint"] == GOLDEN_FP.to_dict()
     # `end` must be absent from every stored token -- it is derived state, and
     # persisting it would add a way for the file to disagree with the class.
     for doc in payload["tokens"]:

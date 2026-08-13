@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 import pytest
 
 from dsj.chunking import chunk_starts, transcribe_chunked
+from dsj.parakeet import wrap
 from dsj.suno import CHUNK_S, OVERLAP_S
 
 if TYPE_CHECKING:
@@ -129,7 +130,7 @@ def test_our_loop_reproduces_the_librarys_transcribe(
         chunked_audio_path, chunk_duration=CHUNK_S, overlap_duration=OVERLAP_S
     )
     ours = transcribe_chunked(
-        model, _load(model, chunked_audio_path), chunk_s=CHUNK_S, overlap_s=OVERLAP_S
+        wrap(model), _load(model, chunked_audio_path), chunk_s=CHUNK_S, overlap_s=OVERLAP_S
     )
 
     assert ours.text == theirs.text
@@ -144,8 +145,8 @@ def test_transcription_is_deterministic_across_runs(
     # here separately so a failure is attributed to MLX/Metal rather than to
     # the resume logic.
     audio = _load(model, chunked_audio_path)
-    a = transcribe_chunked(model, audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
-    b = transcribe_chunked(model, audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
+    a = transcribe_chunked(wrap(model), audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
+    b = transcribe_chunked(wrap(model), audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
 
     assert a.text == b.text
     assert _shape(a) == _shape(b)
@@ -156,7 +157,7 @@ def test_resuming_mid_file_gives_the_uninterrupted_result(
     model: BaseParakeet, chunked_audio_path: Path
 ) -> None:
     audio = _load(model, chunked_audio_path)
-    uninterrupted = transcribe_chunked(model, audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
+    uninterrupted = transcribe_chunked(wrap(model), audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S)
 
     class Interrupt(Exception):
         pass
@@ -177,7 +178,7 @@ def test_resuming_mid_file_gives_the_uninterrupted_result(
 
     with pytest.raises(Interrupt):
         transcribe_chunked(
-            model, audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S, on_chunk=stop_after_two
+            wrap(model), audio, chunk_s=CHUNK_S, overlap_s=OVERLAP_S, on_chunk=stop_after_two
         )
 
     assert chunks_seen == 2
@@ -191,7 +192,7 @@ def test_resuming_mid_file_gives_the_uninterrupted_result(
     assert next_start == starts[2]
 
     resumed = transcribe_chunked(
-        model,
+        wrap(model),
         audio,
         chunk_s=CHUNK_S,
         overlap_s=OVERLAP_S,

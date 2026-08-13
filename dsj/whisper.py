@@ -30,6 +30,7 @@ __all__ = [
     "ROMAN_URDU_PROMPT",
     "SAMPLE_RATE",
     "WhisperUnavailable",
+    "available",
     "transcribe_whisper",
 ]
 
@@ -60,6 +61,27 @@ ROMAN_URDU_PROMPT = (
     "Yeh Roman Urdu transcript hai. Mujhe maloom nahin tha ke aap ne mehsoos kiya ya nahin. "
     "Is mulk mein zyada tar cheezein duty free hain, okay?"
 )
+
+
+def available() -> str | None:
+    """None if mlx-whisper would import; otherwise the reason it will not.
+
+    The registry (dsj.asr.get_engine) calls this before any transcription
+    starts, so a phone asking for whisper fails in a second with a remedy
+    rather than mid-pipeline. find_spec, never an import: this must stay
+    cheap and must not crash on the machines it exists to report about.
+    """
+    import sys
+    from importlib.util import find_spec
+
+    # sys.modules first: an already-imported backend is available by
+    # definition, and find_spec raises on a module a test has stubbed into
+    # sys.modules with no __spec__.
+    if "mlx_whisper" in sys.modules:
+        return None
+    if find_spec("mlx_whisper") is None:
+        return f"mlx-whisper is not installed. Install it with `{INSTALL_HINT}`."
+    return None
 
 
 class WhisperUnavailable(RuntimeError):
