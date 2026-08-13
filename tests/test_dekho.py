@@ -28,9 +28,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import jaano.dekho as dekho_mod
-from jaano import media
-from jaano.dekho import (
+import dsj.dekho as dekho_mod
+from dsj import media
+from dsj.dekho import (
     DEFAULT_DELTA,
     Mark,
     change_scores,
@@ -39,7 +39,7 @@ from jaano.dekho import (
     select_marks,
     with_marks,
 )
-from jaano.media import _reap, _tool  # pyright: ignore[reportPrivateUsage]
+from dsj.media import _reap, _tool  # pyright: ignore[reportPrivateUsage]
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,

@@ -1,17 +1,17 @@
-"""The `jaano` command -- one Typer app, three verbs.
+"""The `dsj` command -- one Typer app, three verbs.
 
-    jaano suno   recording.mov -o transcript.json    # listen
-    jaano dekho  recording.mov -t transcript.json    # look
-    jaano dikhao recording.mov 431.5 -o frame.jpg    # show me
+    dsj suno   recording.mov -o transcript.json    # listen
+    dsj dekho  recording.mov -t transcript.json    # look
+    dsj dikhao recording.mov 431.5 -o frame.jpg    # show me
 
 Urdu imperatives, and they are not decoration: they name the three things the
 tool does in the order it does them. Suno gives you what was said, dekho gives
 you when the picture changed, dikhao gives you the picture itself. Jaano -- know
 -- is what you get from all three, which is why it is the command.
 
-This file owns ALL argument parsing for the project. `jaano.suno.main`
-and `jaano.dekho.main` are thin shims onto the commands below, so
-`python -m jaano.suno` keeps working and there is exactly one definition
+This file owns ALL argument parsing for the project. `dsj.suno.main`
+and `dsj.dekho.main` are thin shims onto the commands below, so
+`python -m dsj.suno` keeps working and there is exactly one definition
 of every flag rather than one per entry point.
 
 WHY standalone_mode, AND WHY THE SystemExit CATCH. Typer's other calling
@@ -51,9 +51,9 @@ import typer
 # cannot appear in --help: the first version of this file used 0 as a "not
 # given" sentinel and Typer duly advertised `[default: 0]` for a budget whose
 # real default is 150. Measured cost of the import: ~90ms, inside the noise of
-# `jaano --help` at 120-200ms. The heavy workers below stay lazy.
-from jaano.dekho import DEFAULT_BUDGET, DEFAULT_DELTA, DEFAULT_FPS, DEFAULT_MIN_GAP_S
-from jaano.suno import DEFAULT_MODEL, DEFAULT_WHISPER_MODEL, ENGINES
+# `dsj --help` at 120-200ms. The heavy workers below stay lazy.
+from dsj.dekho import DEFAULT_BUDGET, DEFAULT_DELTA, DEFAULT_FPS, DEFAULT_MIN_GAP_S
+from dsj.suno import DEFAULT_MODEL, DEFAULT_WHISPER_MODEL, ENGINES
 
 app = typer.Typer(
     add_completion=False,
@@ -123,12 +123,12 @@ def suno(
     ] = False,
 ) -> int:
     """Listen: transcribe media to a timestamped index."""
-    from jaano.atomic import atomic_write_text
-    from jaano.suno import Progress, clock, render_bar
-    from jaano.suno import transcribe as run_transcribe
-    from jaano.whisper import ROMAN_URDU_PROMPT
+    from dsj.atomic import atomic_write_text
+    from dsj.suno import Progress, clock, render_bar
+    from dsj.suno import transcribe as run_transcribe
+    from dsj.whisper import ROMAN_URDU_PROMPT
 
-    _stderr_logger("jaano.suno")
+    _stderr_logger("dsj.suno")
 
     # \r only rewrites the line on a terminal; when piped, print one line per
     # chunk instead so a captured log stays readable rather than becoming one
@@ -148,7 +148,7 @@ def suno(
     # --roman-urdu is sugar over the two flags under it, and it is spelled as
     # sugar rather than as a mode so that an explicit --language or --prompt
     # beside it still wins. The prompt it sets is measured, not invented: see
-    # jaano/whisper.py.
+    # dsj/whisper.py.
     if roman_urdu:
         engine = "whisper" if engine == "parakeet" else engine
         language = language or "ur"
@@ -220,9 +220,9 @@ def dekho(
     ] = DEFAULT_MIN_GAP_S,
 ) -> int:
     """Look: mark the moments the picture changed most."""
-    from jaano.dekho import logger, mark_video
+    from dsj.dekho import logger, mark_video
 
-    _stderr_logger("jaano.dekho")
+    _stderr_logger("dsj.dekho")
     tty = sys.stderr.isatty()
     started = time.monotonic()
 
@@ -274,12 +274,12 @@ def dikhao(
     ] = 1500,
 ) -> int:
     """Show me: write the frame at a given second to an image file."""
-    from jaano.media import extract_frame
+    from dsj.media import extract_frame
 
     dest = extract_frame(video, seconds, out, width=width or None)
     # The path alone on stdout, and nothing else. The caller is usually a
     # program, and a path on stdout composes:
-    #     open "$(jaano frame rec.mov 431.5 -o /tmp/f.jpg)"
+    #     open "$(dsj frame rec.mov 431.5 -o /tmp/f.jpg)"
     print(dest)
     return 0
 
@@ -301,13 +301,13 @@ def run(argv: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for the `jaano` console script.
+    """Entry point for the `dsj` console script.
 
     Returns:
         A process exit code.
     """
     args = list(sys.argv[1:] if argv is None else argv)
-    # `jaano help` as well as `jaano --help`. Typer offers no `help` command
+    # `dsj help` as well as `dsj --help`. Typer offers no `help` command
     # and the bare word is what people type.
     if args and args[0] == "help":
         args = ["--help"]

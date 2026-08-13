@@ -12,15 +12,15 @@
 
 ---
 
-**An hour of screen recording, made answerable.** `jaano` turns a recording into
+**An hour of screen recording, made answerable.** `dsj` turns a recording into
 a timestamped transcript that acts as an *index into the video* — so an agent
 reads cheap text, notices a moment that only makes sense visually, and pulls
 that exact frame.
 
 ```bash
-jaano suno   meeting.mov -o transcript.json        # suno   -- listen
-jaano dekho  meeting.mov -t transcript.json        # dekho  -- look
-jaano dikhao meeting.mov 431.5 -o frame.jpg        # dikhao -- show me
+dsj suno   meeting.mov -o transcript.json        # suno   -- listen
+dsj dekho  meeting.mov -t transcript.json        # dekho  -- look
+dsj dikhao meeting.mov 431.5 -o frame.jpg        # dikhao -- show me
 ```
 
 Three Urdu imperatives, in the order the tool works:
@@ -30,7 +30,7 @@ Three Urdu imperatives, in the order the tool works:
 | <div dir="rtl">سنو</div> | `suno` | *listen* — what was said, and when |
 | <div dir="rtl">دیکھو</div> | `dekho` | *look* — when the picture changed |
 | <div dir="rtl">دکھاؤ</div> | `dikhao` | *show me* — the picture itself |
-| <div dir="rtl">جانو</div> | `jaano` | *know* — what you get from all three, and so the command |
+| <div dir="rtl">جانو</div> | `dsj` | *know* — what you get from all three, and so the command |
 
 <p align="center">
   <img src="assets/pipeline.svg" alt="A recording becomes a transcript and a list of marks; frames are seeked out of the original on demand" width="900">
@@ -50,7 +50,7 @@ recording is **444,000 tokens** on a native-video model against **10,000** for
 its transcript — 44× the cost to answer a question that is usually about one
 second of it.
 
-`jaano` keeps the video on disk as a random-access resource and spends tokens
+`dsj` keeps the video on disk as a random-access resource and spends tokens
 only where the transcript says something visual happened.
 
 ## Does it work? Measured, not asserted
@@ -104,49 +104,49 @@ the interesting part.
 uv tool install git+https://github.com/m2moiz/jaano
 ```
 
-That puts `jaano` on your `PATH`. With speaker labels (see the caveats below):
+That puts `dsj` on your `PATH`. With speaker labels (see the caveats below):
 
 ```bash
-uv tool install "jaano[diarize] @ git+https://github.com/m2moiz/jaano"
+uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/jaano"
 ```
 
 Model weights (~2.4 GB) download on first run and are cached by
 `huggingface_hub`.
 
 **To work on it instead**, clone and sync — but note that `uv sync` installs the
-command at `.venv/bin/jaano` and links it nowhere, so from a clone every
+command at `.venv/bin/dsj` and links it nowhere, so from a clone every
 invocation is prefixed with `uv run`:
 
 ```bash
 git clone https://github.com/m2moiz/jaano
-cd jaano
+cd dsj
 uv sync                      # or: uv sync --extra diarize
-uv run jaano suno recording.mov -o transcript.json
+uv run dsj suno recording.mov -o transcript.json
 ```
 
-Every command below is written bare (`jaano ...`), which is what an installed
+Every command below is written bare (`dsj ...`), which is what an installed
 copy gives you. From a clone, prefix each one with `uv run`.
 
 ## Usage
 
-`jaano dikhao` prints the path it wrote and nothing else, so it composes:
+`dsj dikhao` prints the path it wrote and nothing else, so it composes:
 
 ```bash
-open "$(jaano dikhao recording.mov 431.5 -o /tmp/f.jpg)"
+open "$(dsj dikhao recording.mov 431.5 -o /tmp/f.jpg)"
 ```
 
-**If you point an agent at a recording, tell it about `jaano dikhao`.** That one
+**If you point an agent at a recording, tell it about `dsj dikhao`.** That one
 verb is the difference between an agent reconstructing the screen from what was
 said about it and an agent *looking*: measured 5/16 against 16/16 on a
 blind-graded question set ([docs/do-marks-help.md](docs/do-marks-help.md)).
 
-`python -m jaano.suno` and `python -m jaano.dekho` still work and are the same
+`python -m dsj.suno` and `python -m dsj.dekho` still work and are the same
 code.
 
 ### Suno — transcription
 
 ```bash
-jaano suno recording.mov -o transcript.json
+dsj suno recording.mov -o transcript.json
 ```
 
 Progress renders live on stderr:
@@ -174,7 +174,7 @@ voice note comes back as nothing usable. `--engine whisper` swaps in
 `whisper-large-v3-turbo`, which reads it:
 
 ```bash
-jaano suno voice-note.m4a -o transcript.json --roman-urdu
+dsj suno voice-note.m4a -o transcript.json --roman-urdu
 ```
 
 Roman Urdu is a **prompt**, not a setting. whisper writes Urdu in Urdu script by
@@ -200,14 +200,14 @@ default.
 It is an extra, because mlx-whisper pulls torch (~250 MB):
 
 ```bash
-uv tool install "jaano[whisper] @ git+https://github.com/m2moiz/jaano"
+uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/jaano"
 ```
 
 **Long runs.** An hour of audio is not something you sit and watch, so detach it
 and poll the heartbeat:
 
 ```bash
-jaano suno meeting.mov -o out.json --status run.json &
+dsj suno meeting.mov -o out.json --status run.json &
 jq -r '"\(.state) \(.fraction * 100 | floor)% eta \(.eta_s)s"' run.json
 ```
 
@@ -226,7 +226,7 @@ separate because the transcript arrives at ~13x realtime and this decodes every
 sampled frame at ~10x, so coupling them would make the fast half wait:
 
 ```bash
-jaano dekho recording.mov -t transcript.json
+dsj dekho recording.mov -t transcript.json
 ```
 
 | Flag | |
@@ -246,7 +246,7 @@ failed. [docs/visual-marks.md](docs/visual-marks.md) has the numbers.
 ### Dikhao — retrieving a frame
 
 ```bash
-jaano dikhao recording.mov 431.5 -o frame.jpg [--width 1500]
+dsj dikhao recording.mov 431.5 -o frame.jpg [--width 1500]
 ```
 
 | Flag | |
@@ -260,7 +260,7 @@ taste: a full 2940px frame is ~776 KB as a JPEG, more than most vision APIs
 want, and legibility stopped improving well below that — 700px to 1600px moved
 recall by one string in fifteen ([docs/vlm-legibility.md](docs/vlm-legibility.md)).
 
-Also available as `jaano.media.extract_frame(video, t, dest, width=...)`.
+Also available as `dsj.media.extract_frame(video, t, dest, width=...)`.
 
 ## Output
 
@@ -281,7 +281,7 @@ Also available as `jaano.media.extract_frame(video, t, dest, width=...)`.
     }
   ],
 
-  // added by `python -m jaano.dekho`; absent until that pass has run
+  // added by `python -m dsj.dekho`; absent until that pass has run
   // t    = when the picture changed (the boundary)
   // look = the frame worth extracting: the middle of the stretch that screen was up
   "marks": [{"t": 417.0, "score": 2841, "look": 431.5}],
@@ -384,7 +384,7 @@ target hardware and on `parakeet-mlx` exposing per-token alignment directly.
 
 **Chunking is not optional at meeting length.** `parakeet-mlx` defaults
 `chunk_duration` to `None`, which feeds the whole file to Metal in one buffer —
-an hour of audio asks for ~14.5 GB against a ~9.5 GB max buffer and dies. jaano
+an hour of audio asks for ~14.5 GB against a ~9.5 GB max buffer and dies. dsj
 drives the chunk loop itself at 120s with 15s overlap, which is also what makes
 per-chunk progress and resume possible.
 
@@ -405,9 +405,9 @@ model the plain ONNX Runtime CPU kernels win outright. General lesson: a
 triple-digit partition count in an EP load warning means the accelerator is
 hurting you — benchmark against CPU before assuming otherwise.
 
-**Ingestion: jaano runs ffmpeg itself, though it does not have to.**
+**Ingestion: dsj runs ffmpeg itself, though it does not have to.**
 `parakeet-mlx` already shells out to ffmpeg for any input, so a `.mov` would
-load without a line of code here. It is done in `jaano/media.py` anyway for
+load without a line of code here. It is done in `dsj/media.py` anyway for
 two things that call cannot give: progress during the tens of seconds an
 hour-long 4 GB recording takes to demux (~1000x realtime, measured on a
 74-minute wav), and an error you can act on — parakeet's own failure surfaces
@@ -549,8 +549,8 @@ are OCR-based, which is the approach this tool rejects.
 ## Layout
 
 ```
-jaano/            the package
-  cli.py           the `jaano` command: suno | dekho | dikhao
+dsj/            the package
+  cli.py           the `dsj` command: suno | dekho | dikhao
   suno.py          suno   -- ASR orchestration, chunking, resume
   dekho.py         dekho  -- the moments the picture changed, ranked under a budget
   media.py         ffmpeg: audio out, tile grids out, dikhao frames out

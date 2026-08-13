@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from jaano.merge import Turn, TurnIndex, label_sentence, label_sentences
+from dsj.merge import Turn, TurnIndex, label_sentence, label_sentences
 
 
 def sentence(*times: float, start: float | None = None) -> dict[str, Any]:
@@ -102,7 +102,7 @@ def test_unsorted_turns_are_ordered_before_they_are_indexed() -> None:
 
 
 def test_an_empty_turn_list_is_refused_rather_than_answered() -> None:
-    # The caller (jaano.diarize) turns empty segments into
+    # The caller (dsj.diarize) turns empty segments into
     # DiarizationUnavailable; if one ever reaches here, say so loudly rather
     # than inventing a speaker.
     with pytest.raises(ValueError, match=r"^cannot index an empty turn list$"):

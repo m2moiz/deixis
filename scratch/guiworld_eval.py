@@ -1,4 +1,4 @@
-"""Score jaano' marks against GUI-World's human-annotated keyframes.
+"""Score dsj' marks against GUI-World's human-annotated keyframes.
 
 The external benchmark. Every other number about this detector was measured on
 recordings from one laptop; GUI-World (ICLR 2025, CC BY 4.0) is 496 desktop
@@ -44,8 +44,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from jaano.dekho import GRID_H, GRID_W, change_scores, select_marks
-from jaano.media import extract_tile_grid
+from dsj.dekho import GRID_H, GRID_W, change_scores, select_marks
+from dsj.media import extract_tile_grid
 
 ROOT = Path(__file__).resolve().parent / "guiworld"
 

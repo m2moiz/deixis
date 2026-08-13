@@ -1,6 +1,6 @@
 """Transcribe a media file to a timestamped index, with live progress.
 
-The transcript is jaano' index into the video, so this is the one step that
+The transcript is dsj' index into the video, so this is the one step that
 must not fail quietly. Progress is reported two ways at once: a live line on
 the terminal, and a JSON status file that a detached run can be inspected
 through. Background jobs are the normal case here -- an hour of audio is not
@@ -35,15 +35,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 # Imported as media_mod because the parameter it serves is named `media` and
 # would shadow the module inside the function body.
-from jaano import media as media_mod
-from jaano.asr import ENGINES, Transcription
-from jaano.atomic import atomic_write_text
+from dsj import media as media_mod
+from dsj.asr import ENGINES, Transcription
+from dsj.atomic import atomic_write_text
 
-# Names only -- jaano/whisper.py imports mlx-whisper lazily inside its one
+# Names only -- dsj/whisper.py imports mlx-whisper lazily inside its one
 # function, so pulling these two in costs nothing to a run that never asks for
 # the engine, and it keeps `--help` able to print the default.
-from jaano.whisper import DEFAULT_WHISPER_MODEL
-from jaano.whisper import SAMPLE_RATE as WHISPER_SAMPLE_RATE
+from dsj.whisper import DEFAULT_WHISPER_MODEL
+from dsj.whisper import SAMPLE_RATE as WHISPER_SAMPLE_RATE
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
@@ -61,7 +61,7 @@ type Payload = dict[str, Any]
 # retrieval half will call, and a library that writes to stderr unasked is a
 # library that cannot be embedded. main() attaches the stderr handler, so the
 # CLI behaves exactly as before.
-logger = logging.getLogger("jaano.suno")
+logger = logging.getLogger("dsj.suno")
 
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
@@ -144,7 +144,7 @@ def _make_chunk_callback(
     """Build the per-chunk progress callback.
 
     `current` and `full` arrive in SAMPLES, not seconds -- the sample counts
-    parakeet-mlx passes its own callback, which jaano/chunking.py preserves.
+    parakeet-mlx passes its own callback, which dsj/chunking.py preserves.
     Upstream only ever feeds them to a ratio, so the units never mattered there.
     Dividing by `rate` is the whole point of this function, and a ratio-only
     assertion cannot see whether it happened, because the units cancel.
@@ -211,8 +211,8 @@ def _label_speakers(
     Returns the payload to hand back to the caller -- the labelled one when the
     pass ran, the one passed in when it did not.
     """
-    from jaano import diarize as diarize_mod
-    from jaano.merge import label_sentences
+    from dsj import diarize as diarize_mod
+    from dsj.merge import label_sentences
 
     started = time.monotonic()
     # Two events, not a bar. senko exposes no per-chunk callback, so there is
@@ -280,7 +280,7 @@ def transcribe(
 
     `engine` picks the ASR backend. "parakeet" is the default and everything
     above describes it. "whisper" exists for the languages parakeet does not
-    have -- see jaano/whisper.py -- and differs in two ways worth knowing
+    have -- see dsj/whisper.py -- and differs in two ways worth knowing
     before you choose it: it owns its own window loop, so there is no
     checkpoint and no resume, and it reports no progress between start and
     finish. `language` and `prompt` are whisper's; parakeet takes neither.
@@ -298,7 +298,7 @@ def transcribe(
     # no stubs, so each callable resolves partially unknown at the import
     # itself -- there is no expression to annotate, which is why these two
     # lines are suppressed rather than fixed. The casts below restate the
-    # two-argument form jaano actually calls, which stops the Unknown at this
+    # two-argument form dsj actually calls, which stops the Unknown at this
     # boundary instead of letting it spread through every value derived from
     # the model and the audio. The audio itself stays Any: it is an mx.array.
     from parakeet_mlx import (
@@ -313,13 +313,13 @@ def transcribe(
     from_pretrained = cast("Callable[[str], BaseParakeet]", _from_pretrained)
     load_audio = cast("Callable[[Path, int], Any]", _load_audio)
 
-    from jaano.checkpoint import (
+    from dsj.checkpoint import (
         checkpoint_path_for,
         fingerprint,
         read_checkpoint,
         write_checkpoint,
     )
-    from jaano.chunking import transcribe_chunked
+    from dsj.chunking import transcribe_chunked
 
     started = time.monotonic()
     # Load first: the extraction target rate is a property of this model's
@@ -355,7 +355,7 @@ def transcribe(
 
     stream = media_mod.probe(media)
 
-    with tempfile.TemporaryDirectory(prefix="jaano-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="dsj-") as tmp:
         if media_mod.needs_conversion(stream, rate):
             # Per-phase clock. Extraction runs three orders of magnitude faster
             # than realtime and the transcription that follows around 20x;
@@ -380,7 +380,7 @@ def transcribe(
         ckpt_path: Path | None = None
         resumed_from_s = 0.0
         if model is None:
-            from jaano.whisper import transcribe_whisper
+            from dsj.whisper import transcribe_whisper
 
             # No checkpoint, and so no resume: whisper owns its window loop and
             # exposes no per-window hook to bank one from. Said out loud rather
@@ -511,15 +511,15 @@ def transcribe(
 def main(argv: list[str] | None = None) -> int:
     """Run the transcribe CLI.
 
-    A shim onto `jaano.cli`, which owns every flag in the project so that the
-    console script and `python -m jaano.suno` cannot drift apart. Kept
+    A shim onto `dsj.cli`, which owns every flag in the project so that the
+    console script and `python -m dsj.suno` cannot drift apart. Kept
     as a function returning an int because that is the contract its tests --
     and any embedder -- already rely on.
 
     Returns:
         A process exit code.
     """
-    from jaano.cli import run
+    from dsj.cli import run
 
     return run(["suno", *(sys.argv[1:] if argv is None else argv)])
 

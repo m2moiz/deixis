@@ -24,7 +24,7 @@ on:
 jobs:
   # THE PATH THE README PUBLISHES. `check` below runs `uv sync` inside the
   # project, where .python-version pins the interpreter and the extras are
-  # already synced -- which is not how anyone installs jaano. That divergence
+  # already synced -- which is not how anyone installs dsj. That divergence
   # is how a 45-minute recording got transcribed with diarization silently
   # skipped while the suite stayed green: nothing executed the documented
   # command.
@@ -48,7 +48,7 @@ jobs:
       # environment and must not be handed a working senko by the runner.
       - run: uv sync --dev
 
-      - name: the documented install produces a working diarizing jaano
+      - name: the documented install produces a working diarizing dsj
         run: uv run pytest tests/test_install_gate.py -m "slow or not slow"
 
   check:
@@ -86,7 +86,7 @@ jobs:
 
       # --extra whisper is here for pyright, not for pytest. Every fast test of
       # the whisper engine stubs mlx-whisper, so the suite passes without it --
-      # but `jaano/whisper.py` imports it, and pyright under strict reports an
+      # but `dsj/whisper.py` imports it, and pyright under strict reports an
       # unresolved import as an error, which is exactly what the first CI run
       # of that file did. Installing it costs a torch download on a cold cache;
       # the alternative is suppressing a real unresolved-import diagnostic that

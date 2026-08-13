@@ -37,7 +37,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-from jaano.asr import Transcription
+from dsj.asr import Transcription
 
 DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 
@@ -47,7 +47,7 @@ DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 SAMPLE_RATE = 16000
 
 INSTALL_HINT = (
-    'uv tool install "jaano[whisper] @ git+https://github.com/m2moiz/jaano"'
+    'uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/jaano"'
     " (or `uv sync --extra whisper` from a clone)"
 )
 
@@ -125,8 +125,8 @@ def transcribe_whisper(
         # None, and NOT False. mlx-whisper reads this backwards from the way it
         # looks: `disable=verbose is not False`, so verbose=False is the value
         # that SHOWS its tqdm bar, and only None silences it. Observed -- the
-        # first run of this function printed an 11,580-frame bar over jaano's
-        # own line. jaano owns this terminal row, and a detached run reads
+        # first run of this function printed an 11,580-frame bar over dsj's
+        # own line. dsj owns this terminal row, and a detached run reads
         # --status rather than stderr.
         verbose=None,
     )

@@ -37,14 +37,14 @@ check: typecheck
 # deselection in addopts, and empty-marker behaviour is not worth relying on.
 #
 # --cov-fail-under is not a quality bar, it is a LIVENESS check. This line said
-# `--cov=deixis` for as long as the package has been called jaano: coverage
+# `--cov=deixis` for as long as the package has been called dsj: coverage
 # collected nothing, printed "Module deixis was never imported" and "No data
 # was collected" into the middle of a 22-minute run, and exited 0. Every
 # coverage number quoted after the rename measured a package that did not
 # exist. A floor turns that silence into a failure -- no data reads as 0%.
 verify: typecheck
     uv run ruff check .
-    uv run pytest -m "slow or not slow" --cov=jaano --cov-report=term-missing:skip-covered --cov-fail-under=90
+    uv run pytest -m "slow or not slow" --cov=dsj --cov-report=term-missing:skip-covered --cov-fail-under=90
 
 # Mutation testing over the three pure modules. Coverage proves a line ran;
 # this proves the suite would notice if it stopped. Survivors are the
