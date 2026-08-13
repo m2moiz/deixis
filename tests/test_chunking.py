@@ -19,7 +19,9 @@ from dsj.suno import CHUNK_S, OVERLAP_S
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
-    from parakeet_mlx.alignment import AlignedResult, AlignedToken
+    from parakeet_mlx.alignment import AlignedResult as UpstreamResult
+
+    from dsj.alignment import AlignedResult, AlignedToken
 
 
 def test_boundaries_match_the_librarys_stride() -> None:
@@ -101,7 +103,9 @@ def _load(model: BaseParakeet, path: Path) -> Any:
     return cast("Any", load_audio(path, model.preprocessor_config.sample_rate))
 
 
-def _shape(result: AlignedResult) -> list[dict[str, Any]]:
+# Accepts both vocabularies on purpose: the equivalence test compares
+# upstream's transcribe() against our loop, one of each.
+def _shape(result: AlignedResult | UpstreamResult) -> list[dict[str, Any]]:
     """A comparable rendering: the same fields transcribe() writes to disk."""
     return [
         {

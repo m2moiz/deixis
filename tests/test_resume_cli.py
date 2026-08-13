@@ -20,8 +20,8 @@ from dsj.checkpoint import checkpoint_path_for
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
-    from parakeet_mlx.alignment import AlignedResult
 
+    from dsj.alignment import AlignedResult
     from dsj.suno import Progress
 
 pytestmark = pytest.mark.slow

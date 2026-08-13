@@ -13,8 +13,8 @@ import struct
 from pathlib import Path
 
 import pytest
-from parakeet_mlx.alignment import AlignedToken
 
+from dsj.alignment import AlignedToken
 from dsj.checkpoint import (
     SCHEMA,
     Fingerprint,

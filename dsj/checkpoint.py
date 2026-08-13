@@ -23,9 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from parakeet_mlx.alignment import AlignedToken
 from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
 
+from dsj.alignment import AlignedToken
 from dsj.atomic import atomic_write_text
 
 SCHEMA = 1

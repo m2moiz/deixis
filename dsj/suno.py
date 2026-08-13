@@ -47,7 +47,8 @@ from dsj.whisper import SAMPLE_RATE as WHISPER_SAMPLE_RATE
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
-    from parakeet_mlx.alignment import AlignedToken
+
+    from dsj.alignment import AlignedToken
 
 # The transcript is JSON, so its two nested shapes are plain dicts rather than
 # dataclasses -- json.dumps is the only consumer here, and a schema class would

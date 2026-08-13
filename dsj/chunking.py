@@ -5,13 +5,18 @@ chunk_callback both fires before the chunk is decoded and receives only sample
 counts. Neither seeding nor observing that accumulation is possible from
 outside, so the loop is reproduced here.
 
-The overlap merge is NOT reproduced. This module calls the library's own
-merge_longest_contiguous and merge_longest_common_subsequence, in the same
-order and with the same arguments, so the hard part stays upstream. What that
-buys in correctness it costs in coupling: this loop mirrors parakeet-mlx 0.5.2
-(parakeet.py:164-221) and will drift silently if upstream changes. The
-equivalence test in tests/test_chunking.py is what makes that drift loud, and
-pyproject pins the version rather than floating it.
+The overlap merge is dsj's own since the extraction: dsj.alignment carries a
+verbatim port of parakeet-mlx 0.5.2's merge_longest_contiguous and
+merge_longest_common_subsequence, called in the same order with the same
+arguments. Owning the copy is what lets a checkpoint load without Apple
+hardware; the cost is that upstream can no longer drift *for* us. The
+equivalence test in tests/test_chunking.py now proves the copy faithful
+against the installed parakeet-mlx, and tests/test_alignment.py exercises the
+merge math directly, with no model at all.
+
+Tokens cross into dsj's own AlignedToken at the decode boundary below -- the
+one place engine output enters this loop -- so everything downstream
+(checkpoint, merge, payload) speaks one vocabulary regardless of engine.
 """
 
 from __future__ import annotations
@@ -25,20 +30,23 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from parakeet_mlx import DecodingConfig
-from parakeet_mlx.alignment import (
+from parakeet_mlx.audio import (
+    get_logmel as _get_logmel_untyped,  # pyright: ignore[reportUnknownVariableType]  # mlx's core is a compiled extension with no stubs, so mx.array -- and this signature with it -- is Unknown at the import itself
+)
+
+from dsj.alignment import (
     AlignedResult,
     AlignedToken,
+    SentenceConfig,
     merge_longest_common_subsequence,
     merge_longest_contiguous,
     sentences_to_result,
     tokens_to_sentences,
 )
-from parakeet_mlx.audio import (
-    get_logmel as _get_logmel_untyped,  # pyright: ignore[reportUnknownVariableType]  # mlx's core is a compiled extension with no stubs, so mx.array -- and this signature with it -- is Unknown at the import itself
-)
 
 if TYPE_CHECKING:
     from parakeet_mlx import BaseParakeet
+    from parakeet_mlx.alignment import AlignedResult as UpstreamResult
     from parakeet_mlx.audio import PreprocessArgs
 
 # The log mel is an mx.array, which has no stub, so it is Any to a type checker
@@ -58,7 +66,7 @@ class _Generates(Protocol):
 
     def generate(
         self, mel: Any, *, decoding_config: DecodingConfig = ...
-    ) -> list[AlignedResult]: ...
+    ) -> list[UpstreamResult]: ...
 
 
 def chunk_starts(total_samples: int, chunk_samples: int, overlap_samples: int) -> list[int]:
@@ -120,33 +128,35 @@ def transcribe_chunked(
         # neither last_token nor hidden_state -- so a chunk's tokens depend on
         # nothing but its own audio. That is what makes resuming mid-file give
         # the same answer as never having stopped.
+        #
+        # THE VOCABULARY BOUNDARY. Engine tokens become dsj tokens here, offset
+        # applied in the construction. Same arithmetic as the old in-place walk:
+        # __post_init__ computes end = (start + offset) + duration, which is
+        # what `token.start += offset; token.end = token.start + duration` did.
         offset = start / rate
-        for sentence in chunk_result.sentences:
-            for token in sentence.tokens:
-                token.start += offset
-                token.end = token.start + token.duration
+        chunk_tokens = [
+            AlignedToken(
+                id=token.id,
+                text=token.text,
+                start=token.start + offset,
+                duration=token.duration,
+                confidence=token.confidence,
+            )
+            for sentence in chunk_result.sentences
+            for token in sentence.tokens
+        ]
 
         if all_tokens:
-            # Both merges are unannotated upstream and build their result in a
-            # bare list, so their inferred return carries an Unknown element.
-            # The elements are AlignedToken by construction -- every branch
-            # returns slices of the two lists passed in.
             try:
-                all_tokens = cast(
-                    "list[AlignedToken]",
-                    merge_longest_contiguous(
-                        all_tokens, chunk_result.tokens, overlap_duration=overlap_s
-                    ),
+                all_tokens = merge_longest_contiguous(
+                    all_tokens, chunk_tokens, overlap_duration=overlap_s
                 )
             except RuntimeError:
-                all_tokens = cast(
-                    "list[AlignedToken]",
-                    merge_longest_common_subsequence(
-                        all_tokens, chunk_result.tokens, overlap_duration=overlap_s
-                    ),
+                all_tokens = merge_longest_common_subsequence(
+                    all_tokens, chunk_tokens, overlap_duration=overlap_s
                 )
         else:
-            all_tokens = chunk_result.tokens
+            all_tokens = chunk_tokens
 
         if on_chunk is not None:
             # The following boundary, or the end of the audio if this was the
@@ -154,4 +164,13 @@ def transcribe_chunked(
             next_start = starts[i + 1] if i + 1 < len(starts) else total
             on_chunk(end, next_start, total, all_tokens)
 
-    return sentences_to_result(tokens_to_sentences(all_tokens, cfg.sentence))
+    # cfg.sentence is parakeet's SentenceConfig; sentence assembly runs on
+    # dsj's. Field-for-field identical, so this is a relabel, not a translation
+    # -- and it goes away with the DecodingConfig parameter when the engine
+    # protocol lands (docs/android-port-design.md).
+    sentence_cfg = SentenceConfig(
+        max_words=cfg.sentence.max_words,
+        silence_gap=cfg.sentence.silence_gap,
+        max_duration=cfg.sentence.max_duration,
+    )
+    return sentences_to_result(tokens_to_sentences(all_tokens, sentence_cfg))

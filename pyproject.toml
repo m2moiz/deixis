@@ -147,6 +147,13 @@ convention = "google"
 # strict, which demands the same annotations. Doing that work twice, against two
 # tools, would be incoherent -- so the ANN batch is deferred to 3b and done once.
 "tests/**" = ["D1", "ARG"]
+# Vendored verbatim from parakeet-mlx (see its module docstring). Docstring
+# rules would force edits to upstream code whose value is being byte-faithful;
+# the module docstring carries the documentation for the whole file.
+# RUF001 is the load-bearing one: the fullwidth 。？！ are CJK sentence
+# enders the splitter checks for -- "fixing" them to ASCII would be a
+# silent behaviour change, exactly what a vendored file must not do.
+"dsj/alignment.py" = ["D101", "D102", "D103", "D105", "C413", "RUF001", "SIM212", "RET505"]
 # scratch/*.py is tracked code (working probes, not shipped), so ruff lints it.
 # Fix the mechanical ones; ignore the classes that do not matter in a probe.
 "scratch/**" = ["ANN", "D", "ARG", "B905", "E501", "SIM115", "PTH123"]
