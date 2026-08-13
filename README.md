@@ -86,10 +86,12 @@ the interesting part.
 - **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], and the
   whisper engine through `mlx-whisper`. Both are Metal-backed; there is no CPU
   or CUDA path.
-- **Python 3.12 or 3.13.** Capped deliberately: the diarize extra reaches
+- **Python 3.12 or 3.13.** Capped deliberately. The diarize extra reaches
   coremltools, which publishes no wheel above 3.13 and no `requires-python` of
-  its own, so an uncapped range let `uv tool install` pick a Python where it
-  built from source and then failed to load.
+  its own; on 3.14 it builds from source into a pure-Python wheel with the
+  CoreML extensions missing. That imports cleanly and then cannot diarize, so
+  the failure arrives as a transcript with no speaker labels rather than as an
+  error. `tests/test_install_gate.py` runs the install below and checks it.
 - **ffmpeg** on `PATH`, for anything that is not already a 16 kHz mono WAV.
 - [`uv`][uv] for dependency management.
 

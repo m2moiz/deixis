@@ -22,6 +22,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  # THE PATH THE README PUBLISHES. `check` below runs `uv sync` inside the
+  # project, where .python-version pins the interpreter and the extras are
+  # already synced -- which is not how anyone installs jaano. That divergence
+  # is how a 45-minute recording got transcribed with diarization silently
+  # skipped while the suite stayed green: nothing executed the documented
+  # command.
+  #
+  # Deliberately a CI job rather than only a `just verify` gate. verify is a
+  # session-close ritual that can run AFTER a merge; CI runs before one.
+  install-gate:
+    runs-on: macos-14
+
+    steps:
+      # fetch-depth: 0 because the gate installs from a git+file:// clone of
+      # this checkout, and cloning a shallow repo is not reliable.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      # No extras here on purpose: the gate builds its own isolated tool
+      # environment and must not be handed a working senko by the runner.
+      - run: uv sync --dev
+
+      - name: the documented install produces a working diarizing jaano
+        run: uv run pytest tests/test_install_gate.py -m "slow or not slow"
+
   check:
     # macos-14 is the Apple Silicon runner. parakeet-mlx requires MLX, which is
     # Metal-backed, so a Linux runner cannot even import the package. Confirmed

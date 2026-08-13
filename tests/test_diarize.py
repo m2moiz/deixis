@@ -121,9 +121,9 @@ def test_an_installed_senko_that_will_not_load_says_so(
     package that was already installed, and the dlopen error, which names the
     offending library, thrown away.
 
-    The real instance: `uv tool install` picked Python 3.14 because
-    requires-python had no cap, coremltools publishes no wheel above 3.13, so
-    it built from source and libmodelpackage would not load.
+    This is the general case, not the 3.14 coremltools incident that prompted
+    it -- that one imports clean and loses CoreML silently, and is covered by
+    the requires-python cap and tests/test_install_gate.py instead.
     """
     real_import = builtins.__import__
 
