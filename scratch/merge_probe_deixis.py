@@ -1,4 +1,4 @@
-"""Throwaway: re-run the §2.4 measurement through jaano.merge itself.
+"""Throwaway: re-run the §2.4 measurement through dsj.merge itself.
 
 The point is to prove the shipped implementation is the algorithm the plan
 specified, not merely something that passes the unit tests. Run from the repo
@@ -10,13 +10,13 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from jaano.merge import Turn, TurnIndex, label_sentence
+from dsj.merge import Turn, TurnIndex, label_sentence
 
 HERE = Path(__file__).parent
 TR = json.loads((HERE / "meeting_deixis.json").read_text())
 DI = json.loads((HERE / "senko_meeting.json").read_text())
 
-# Exactly what jaano/diarize.py's _to_turns does, inlined so this probe does
+# Exactly what dsj/diarize.py's _to_turns does, inlined so this probe does
 # not need senko installed to run.
 labels = sorted({s["speaker"] for s in DI["merged_segments"]})
 idx = {name: i for i, name in enumerate(labels)}

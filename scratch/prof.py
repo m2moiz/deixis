@@ -6,7 +6,7 @@ import mlx.core as mx
 from parakeet_mlx import from_pretrained
 from parakeet_mlx.audio import load_audio
 
-from jaano import checkpoint, chunking
+from dsj import checkpoint, chunking
 
 AUDIO = Path("scratch/clip360.wav")
 m = from_pretrained("mlx-community/parakeet-tdt-0.6b-v3")

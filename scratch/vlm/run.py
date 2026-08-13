@@ -35,7 +35,7 @@ for path in images:
 
 json.dump(
     {"model": MODEL, "load_seconds": round(load_s, 1), "results": results},
-    open("/Users/moiz/Documents/code/jaano/scratch/vlm/raw_output.json", "w"),
+    open("/Users/moiz/Documents/code/dsj/scratch/vlm/raw_output.json", "w"),
     indent=2,
     ensure_ascii=False,
 )

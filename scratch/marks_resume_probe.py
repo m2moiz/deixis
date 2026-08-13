@@ -39,8 +39,8 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from jaano.dekho import DEFAULT_FPS, GRID_H, GRID_W
-from jaano.media import PREROLL_S, extract_tile_grid
+from dsj.dekho import DEFAULT_FPS, GRID_H, GRID_W
+from dsj.media import PREROLL_S, extract_tile_grid
 
 FRAME_BYTES = GRID_W * GRID_H
 
