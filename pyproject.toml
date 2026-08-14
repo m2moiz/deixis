@@ -27,7 +27,6 @@ dependencies = [
     # that imports it is a module that depends on it, and an indirect
     # dependency can vanish under an upstream release with no warning.
     "numpy>=2.0",
-    "parakeet-mlx>=0.5.2",
     "pydantic>=2.13.4",
     # Already present transitively via parakeet-mlx, which is exactly why it
     # gets declared: a transitive dependency can vanish under an upstream
@@ -59,6 +58,21 @@ whisper = [
 ]
 diarize = [
     "senko>=0.1.0,<0.2",
+]
+# The default engine, an extra since the Android port: MLX has no wheels off
+# Apple Silicon, and a hard dependency on it is why the base package could not
+# even install elsewhere. No environment markers on purpose -- asking for this
+# extra on the wrong machine must fail loudly at resolve time, not succeed
+# while installing nothing.
+parakeet = [
+    "parakeet-mlx>=0.5.2",
+]
+# The documented bundles. Installing dsj means choosing one -- a bare install
+# is a core with no engine, which transcribes nothing and says so. mac carries
+# both engines and the diarizer because that is the working Mac setup; android
+# arrives with the sherpa engine.
+mac = [
+    "dsj[parakeet,whisper,diarize]",
 ]
 
 [dependency-groups]

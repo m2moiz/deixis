@@ -83,9 +83,11 @@ the interesting part.
 
 ## Requirements
 
-- **macOS on Apple Silicon.** ASR runs through [`parakeet-mlx`][pmlx], and the
-  whisper engine through `mlx-whisper`. Both are Metal-backed; there is no CPU
-  or CUDA path.
+- **A platform with an engine bundle.** The core is portable Python, but the
+  speech engines are not: on macOS both ASR engines run through Metal
+  ([`parakeet-mlx`][pmlx] and `mlx-whisper`), which is Apple Silicon only.
+  Installing dsj means choosing a bundle -- there is deliberately no default,
+  because a dsj with no engine transcribes nothing.
 - **Python 3.12 or 3.13.** Capped deliberately. The diarize extra reaches
   coremltools, which publishes no wheel above 3.13 and no `requires-python` of
   its own; on 3.14 it builds from source into a pure-Python wheel with the
@@ -100,15 +102,15 @@ the interesting part.
 
 ## Install
 
-```bash
-uv tool install git+https://github.com/m2moiz/dekho-suno-jaano
-```
-
-That puts `dsj` on your `PATH`. With speaker labels (see the caveats below):
+Pick the bundle for your machine. On a Mac:
 
 ```bash
-uv tool install "dsj[diarize] @ git+https://github.com/m2moiz/dekho-suno-jaano"
+uv tool install "dsj[mac] @ git+https://github.com/m2moiz/dekho-suno-jaano"
 ```
+
+That puts `dsj` on your `PATH` with both engines and the diarizer. There is no
+bare install line on purpose: `uv tool install dsj` succeeds but carries no
+engine, and the first `dsj suno` tells you which extra to add.
 
 Model weights (~2.4 GB) download on first run and are cached by
 `huggingface_hub`.
@@ -197,7 +199,8 @@ from. It runs at ~1.4x realtime against parakeet's ~13x. All three are fine for
 a voice note and wrong for an hour of lecture, which is why parakeet stays the
 default.
 
-It is an extra, because mlx-whisper pulls torch (~250 MB):
+It is part of the `mac` bundle; standalone installs can pick it alone
+(mlx-whisper pulls torch, ~250 MB):
 
 ```bash
 uv tool install "dsj[whisper] @ git+https://github.com/m2moiz/dekho-suno-jaano"

@@ -41,7 +41,7 @@ README = REPO / "README.md"
 # rather than a copy so that editing the README's command and not this file is
 # a test failure rather than a silent drift.
 DOCUMENTED = re.compile(
-    r'uv tool install "dsj\[diarize\] @ git\+https://github\.com/m2moiz/dekho-suno-jaano"'
+    r'uv tool install "dsj\[mac\] @ git\+https://github\.com/m2moiz/dekho-suno-jaano"'
 )
 
 pytestmark = [
@@ -90,7 +90,7 @@ def test_the_documented_install_produces_a_working_diarizing_dsj(
     interpreter choice -- is the published path untouched.
     """
     tool_dir = tmp_path / "tools"
-    spec = f'dsj[diarize] @ git+file://{REPO}'
+    spec = f'dsj[mac] @ git+file://{REPO}'
 
     install = _uv("tool", "install", "--force", spec, tool_dir=tool_dir)
     assert install.returncode == 0, (
@@ -140,7 +140,7 @@ def test_the_documented_install_produces_a_working_diarizing_dsj(
         timeout=600,
     )
     assert imported.returncode == 0, (
-        f"dsj[diarize] installed on Python {version} and senko will not "
+        f"dsj[mac] installed on Python {version} and senko will not "
         f"import:\n{imported.stderr}"
     )
 
@@ -214,3 +214,56 @@ def test_this_gate_runs_on_a_python_the_cap_allows() -> None:
         f"the suite is running on Python {sys.version_info.major}."
         f"{sys.version_info.minor}, outside pyproject's requires-python"
     )
+
+
+def test_a_bare_install_is_a_core_with_no_engine_and_says_so(tmp_path: Path) -> None:
+    """The Android port's contract, run rather than claimed.
+
+    A bare `uv tool install dsj` must succeed with no engine backend at all --
+    that is what makes the package installable on a phone -- and the first
+    attempt to transcribe must name the extra to add, not crash somewhere in
+    an import. On this Mac the backends happen to be *importable* globally,
+    which is why the probe runs inside the isolated tool env where they truly
+    do not exist: this is the closest a Mac can get to being the phone.
+    """
+    tool_dir = tmp_path / "tools"
+    spec = f"dsj @ git+file://{REPO}"
+
+    install = _uv("tool", "install", "--force", spec, tool_dir=tool_dir)
+    assert install.returncode == 0, (
+        f"the bare install failed:\n{install.stdout}\n{install.stderr}"
+    )
+
+    binary = tool_dir / "bin" / "dsj"
+    helped = subprocess.run(
+        [str(binary), "--help"], capture_output=True, text=True, check=False, timeout=120
+    )
+    assert helped.returncode == 0, helped.stderr
+
+    env_python = tool_dir / "dsj" / "bin" / "python"
+
+    # No backend came along for the ride. If one did, the bare install is
+    # quietly dragging MLX back in and the phone install is broken again.
+    for backend in ("parakeet_mlx", "mlx_whisper", "senko"):
+        probe = subprocess.run(
+            [str(env_python), "-c", f"import importlib.util as u; import sys; "
+             f"sys.exit(0 if u.find_spec('{backend}') is None else 1)"],
+            capture_output=True, text=True, check=False, timeout=120,
+        )
+        assert probe.returncode == 0, f"{backend} present in a bare install"
+
+    # The core imports and the registry refuses with the remedy, not a crash.
+    refusal = subprocess.run(
+        [str(env_python), "-c",
+         "import dsj.alignment, dsj.checkpoint, dsj.chunking\n"
+         "from dsj.asr import EngineUnavailable, get_engine\n"
+         "try:\n"
+         "    get_engine('parakeet')\n"
+         "except EngineUnavailable as exc:\n"
+         "    print(exc)\n"
+         "else:\n"
+         "    raise SystemExit('get_engine succeeded with no backend installed')\n"],
+        capture_output=True, text=True, check=False, timeout=120,
+    )
+    assert refusal.returncode == 0, refusal.stderr
+    assert "parakeet-mlx is not installed" in refusal.stdout

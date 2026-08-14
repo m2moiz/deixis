@@ -382,7 +382,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
-    { name = "parakeet-mlx" },
     { name = "pydantic" },
     { name = "typer" },
 ]
@@ -390,6 +389,14 @@ dependencies = [
 [package.optional-dependencies]
 diarize = [
     { name = "senko" },
+]
+mac = [
+    { name = "mlx-whisper" },
+    { name = "parakeet-mlx" },
+    { name = "senko" },
+]
+parakeet = [
+    { name = "parakeet-mlx" },
 ]
 whisper = [
     { name = "mlx-whisper" },
@@ -407,14 +414,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dsj", extras = ["parakeet", "whisper", "diarize"], marker = "extra == 'mac'" },
     { name = "mlx-whisper", marker = "extra == 'whisper'", specifier = ">=0.4.3" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "parakeet-mlx", specifier = ">=0.5.2" },
+    { name = "parakeet-mlx", marker = "extra == 'parakeet'", specifier = ">=0.5.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "senko", marker = "extra == 'diarize'", specifier = ">=0.1.0,<0.2" },
     { name = "typer", specifier = ">=0.20" },
 ]
-provides-extras = ["whisper", "diarize"]
+provides-extras = ["whisper", "diarize", "parakeet", "mac"]
 
 [package.metadata.requires-dev]
 dev = [

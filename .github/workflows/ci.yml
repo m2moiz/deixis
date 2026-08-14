@@ -91,7 +91,9 @@ jobs:
       # of that file did. Installing it costs a torch download on a cold cache;
       # the alternative is suppressing a real unresolved-import diagnostic that
       # would then also hide a genuinely broken import.
-      - run: uv sync --dev --extra diarize --extra whisper
+      # --extra parakeet joined the list when the default engine became an
+      # extra: without it the fast lane has no ASR backend at all.
+      - run: uv sync --dev --extra parakeet --extra diarize --extra whisper
 
       # From PyPI rather than a third-party action or a piped install script.
       # rust-just 1.58.0 publishes a macosx_11_0_arm64 wheel, checked against
